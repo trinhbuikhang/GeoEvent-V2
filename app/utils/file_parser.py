@@ -116,6 +116,7 @@ def parse_driveevt(file_path: str) -> List[Event]:
 def parse_driveiri(file_path: str) -> GPSData:
     """
     Parse .driveiri file and return GPSData object
+    Uses Unix timestamp column for higher precision timing
     """
     gps_data = GPSData()
 
@@ -128,13 +129,19 @@ def parse_driveiri(file_path: str) -> GPSData:
 
             for row in reader:
                 try:
-                    # Parse timestamp: M/D/YYYY H:MM:SS AM/PM format
-                    datetime_str = row.get('GPSDateTime', '')
-                    if not datetime_str:
-                        continue
-
-                    # Handle AM/PM format (UTC)
-                    timestamp = datetime.strptime(datetime_str, '%m/%d/%Y %I:%M:%S %p').replace(tzinfo=timezone.utc)
+                    # Parse timestamp: Use Unix timestamp for higher precision
+                    unix_timestamp_str = row.get('Unix', '')
+                    if not unix_timestamp_str:
+                        # Fallback to GPSDateTime if Unix is not available
+                        datetime_str = row.get('GPSDateTime', '')
+                        if not datetime_str:
+                            continue
+                        # Handle AM/PM format (UTC)
+                        timestamp = datetime.strptime(datetime_str, '%m/%d/%Y %I:%M:%S %p').replace(tzinfo=timezone.utc)
+                    else:
+                        # Use Unix timestamp (seconds since epoch, with milliseconds)
+                        unix_timestamp = float(unix_timestamp_str)
+                        timestamp = datetime.fromtimestamp(unix_timestamp, tz=timezone.utc)
 
                     # Parse GPS coordinates
                     lat = float(row.get('Position (begin) (LAT)', '0'))

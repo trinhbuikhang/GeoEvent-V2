@@ -21,6 +21,7 @@ import logging
 LAYER_HEIGHT = 25
 TIMELINE_TOP_MARGIN = 40
 CONTROLS_HEIGHT = 60
+CHAINAGE_SCALE_HEIGHT = 30  # Height for chainage scale at bottom
 HANDLE_SNAP_DISTANCE = 10
 DEFAULT_EVENT_DURATION = 30  # seconds
 GRID_SNAP_SECONDS = 1
@@ -57,6 +58,8 @@ class TimelineWidget(QWidget):
         # View parameters
         self.view_start_time: Optional[datetime] = None
         self.view_end_time: Optional[datetime] = None
+        self.image_start_time: Optional[datetime] = None  # Actual image time range for chainage mapping
+        self.image_end_time: Optional[datetime] = None
         self.zoom_level = 50.0  # pixels per second - adjusted for smaller time ranges
         self.pan_offset = 0
 
@@ -101,6 +104,12 @@ class TimelineWidget(QWidget):
         if not self.gps_data:
             return 0.0
         return self.gps_data.interpolate_chainage(timestamp)
+
+    def get_chainage_by_position(self, latitude: float, longitude: float) -> float:
+        """Get chainage value at specific coordinates using GPS data."""
+        if not self.gps_data:
+            return 0.0
+        return self.gps_data.interpolate_chainage_by_position(latitude, longitude)
 
     def setup_ui(self):
         """Setup timeline controls"""
@@ -226,13 +235,22 @@ class TimelineWidget(QWidget):
 
         self.update()
 
-    def set_image_time_range(self, start_time: datetime, end_time: datetime):
+    def set_image_time_range(self, start_time: datetime, end_time: datetime, start_coords: tuple = None, end_coords: tuple = None):
         """Set timeline view range based on image folder time range (always UTC)"""
         logging.info(f"TimelineWidget: Setting image time range from {start_time} to {end_time}")
+        logging.info(f"TimelineWidget: Image coords - start: {start_coords}, end: {end_coords}")
 
         # Ensure times are UTC
         start_time = self.ensure_timezone(start_time)
         end_time = self.ensure_timezone(end_time)
+
+        # Store actual image time range for chainage mapping
+        self.image_start_time = start_time
+        self.image_end_time = end_time
+        
+        # Store coordinates for chainage calculation
+        self.image_start_coords = start_coords
+        self.image_end_coords = end_coords
 
         # If we have events, expand the view range to include them
         if self.events:
@@ -309,12 +327,23 @@ class TimelineWidget(QWidget):
         # TODO: Implement space-based view
         self.update()
 
-    def add_event_dialog(self):
+    def add_event_dialog(self, coords=None):
         """Show dialog to add new event"""
-        logging.info(f"TimelineWidget: add_event_dialog called, current_position = {self.current_position}")
+        logging.info(f"TimelineWidget: add_event_dialog called, current_position = {self.current_position}, coords = {coords}")
         if not self.current_position:
             QMessageBox.warning(self, "No Position", "Please navigate to an image first to set the event start time.")
             return
+
+        # If no coordinates provided, try to get them from photo tab's current image
+        if coords is None and self.photo_tab and hasattr(self.photo_tab, 'current_metadata'):
+            lat = self.photo_tab.current_metadata.get('latitude')
+            lon = self.photo_tab.current_metadata.get('longitude')
+            if lat is not None and lon is not None:
+                coords = (lat, lon)
+                logging.debug(f"TimelineWidget: Retrieved coordinates from current image: {coords}")
+
+        # Store coordinates for chainage calculation
+        self.event_coords = coords
 
         # Show name input dialog
         event_name, ok = QInputDialog.getText(
@@ -348,7 +377,7 @@ class TimelineWidget(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         rect = self.rect()
-        timeline_height = rect.height() - CONTROLS_HEIGHT
+        timeline_height = rect.height() - CONTROLS_HEIGHT - CHAINAGE_SCALE_HEIGHT
 
         # Draw background
         painter.fillRect(rect, QColor('#1E2A38'))
@@ -357,8 +386,13 @@ class TimelineWidget(QWidget):
         timeline_rect = QRect(0, TIMELINE_TOP_MARGIN, rect.width(), timeline_height)
         painter.fillRect(timeline_rect, QColor('#2C3E50'))
 
+        # Draw chainage scale area
+        chainage_rect = QRect(0, TIMELINE_TOP_MARGIN + timeline_height, rect.width(), CHAINAGE_SCALE_HEIGHT)
+        painter.fillRect(chainage_rect, QColor('#34495E'))
+
         if self.view_start_time and self.view_end_time:
             self.paint_timeline(painter, timeline_rect)
+            self.paint_chainage_scale(painter, chainage_rect)
 
     def paint_timeline(self, painter: QPainter, rect: QRect):
         """Paint timeline content"""
@@ -424,6 +458,92 @@ class TimelineWidget(QWidget):
                 painter.setPen(QColor('#34495E'))
 
             current_time += timedelta(seconds=interval)
+
+    def paint_chainage_scale(self, painter: QPainter, rect: QRect):
+        """Paint chainage scale at bottom of timeline"""
+        if not self.gps_data or not self.view_start_time or not self.view_end_time:
+            return
+
+        # Use same time range and pixels_per_second as timeline for alignment
+        time_range = (self.view_end_time - self.view_start_time).total_seconds()
+        if time_range <= 0:
+            return
+
+        pixels_per_second = (rect.width() * self.zoom_level) / time_range
+        if pixels_per_second <= 0:
+            pixels_per_second = 0.001
+
+        # Use GPS data range for consistent chainage scale
+        # Find min and max chainage in GPS data
+        if not self.gps_data.points:
+            return
+
+        min_chainage = min(p.chainage for p in self.gps_data.points)
+        max_chainage = max(p.chainage for p in self.gps_data.points)
+        chainage_range = max_chainage - min_chainage
+
+        if chainage_range <= 0:
+            return
+
+        # Debug logging
+        logging.debug(f"Chainage scale: GPS range {min_chainage:.1f}m to {max_chainage:.1f}m")
+        logging.debug(f"Chainage scale: view_start={self.view_start_time}, view_end={self.view_end_time}")
+
+        # Calculate grid interval for chainage (try for ~100px spacing)
+        target_spacing = 100
+        meters_per_grid = target_spacing * (chainage_range / rect.width()) if rect.width() > 0 else 100
+
+        # Round to nice intervals (10m, 50m, 100m, 500m, 1000m, etc.)
+        if meters_per_grid < 10:
+            interval = 10
+        elif meters_per_grid < 50:
+            interval = max(10, round(meters_per_grid / 10) * 10)
+        elif meters_per_grid < 100:
+            interval = max(50, round(meters_per_grid / 50) * 50)
+        elif meters_per_grid < 500:
+            interval = max(100, round(meters_per_grid / 100) * 100)
+        elif meters_per_grid < 1000:
+            interval = max(500, round(meters_per_grid / 500) * 500)
+        else:
+            interval = max(1000, round(meters_per_grid / 1000) * 1000)
+
+        # Draw chainage grid
+        painter.setPen(QPen(QColor('#7F8C8D'), 1))
+
+        current_chainage = round(min_chainage / interval) * interval
+        while current_chainage <= max_chainage:
+            # Find the timestamp that corresponds to this chainage
+            corresponding_time = None
+            for i, point in enumerate(self.gps_data.points):
+                if point.chainage >= current_chainage:
+                    if point.chainage == current_chainage:
+                        corresponding_time = point.timestamp
+                    elif i > 0:
+                        # Interpolate between this point and the previous one
+                        prev_point = self.gps_data.points[i-1]
+                        chainage_diff = point.chainage - prev_point.chainage
+                        if chainage_diff > 0:
+                            time_diff = (point.timestamp - prev_point.timestamp).total_seconds()
+                            ratio = (current_chainage - prev_point.chainage) / chainage_diff
+                            corresponding_time = prev_point.timestamp + timedelta(seconds=time_diff * ratio)
+                    break
+
+            if corresponding_time:
+                x = self.time_to_pixel(corresponding_time, pixels_per_second, rect.left())
+            else:
+                continue  # Skip if no corresponding time found
+
+            if rect.left() <= x <= rect.right():
+                # Draw grid line
+                painter.drawLine(int(x), rect.top(), int(x), rect.bottom())
+
+                # Draw chainage label
+                chainage_str = f"{current_chainage:.0f}m"
+                painter.setPen(QColor('#BDC3C7'))
+                painter.drawText(int(x) + 2, rect.top() + 15, chainage_str)
+                painter.setPen(QColor('#7F8C8D'))
+
+            current_chainage += interval
 
     def rebuild_layer_cache(self, rect: QRect):
         """Rebuild layer cache for events"""
@@ -877,11 +997,20 @@ class TimelineWidget(QWidget):
         else:
             logging.info(f"TimelineWidget: User cancelled deletion of event '{event.event_name}' (ID: {event.event_id})")
 
-    def add_event_at_time(self, timestamp: datetime):
+    def add_event_at_time(self, timestamp: datetime, coords=None):
         """Add event at timestamp"""
         # Set current position to timestamp and call add_event_dialog
         self.current_position = self.ensure_timezone(timestamp)
-        self.add_event_dialog()
+        
+        # If no coordinates provided, try to get them from photo tab's current image
+        if coords is None and self.photo_tab and hasattr(self.photo_tab, 'current_metadata'):
+            lat = self.photo_tab.current_metadata.get('latitude')
+            lon = self.photo_tab.current_metadata.get('longitude')
+            if lat is not None and lon is not None:
+                coords = (lat, lon)
+                logging.debug(f"TimelineWidget: Retrieved coordinates from current image: {coords}")
+        
+        self.add_event_dialog(coords)
 
     def complete_event_creation(self):
         """Complete the creation of a new event"""
@@ -898,8 +1027,17 @@ class TimelineWidget(QWidget):
         event_id = f"{self.new_event_name.replace(' ', '_')}_{self.new_event_start.strftime('%Y-%m-%dT%H:%M:%S')}"
 
         # Calculate chainage using GPS data
-        start_chainage = self.get_chainage_at_time(self.new_event_start)
-        end_chainage = self.get_chainage_at_time(self.new_event_end)
+        # Use coordinates if available for more accurate chainage calculation
+        if self.event_coords and len(self.event_coords) == 2:
+            # Use coordinates from current image for both start and end chainage
+            start_chainage = self.get_chainage_by_position(self.event_coords[0], self.event_coords[1])
+            end_chainage = start_chainage  # Same position for now, will be adjusted if needed
+            logging.debug(f"TimelineWidget: Using coordinates {self.event_coords} for chainage calculation: {start_chainage}")
+        else:
+            # Fallback to time-based calculation
+            start_chainage = self.get_chainage_at_time(self.new_event_start)
+            end_chainage = self.get_chainage_at_time(self.new_event_end)
+            logging.debug(f"TimelineWidget: Using time-based chainage calculation")
 
         new_event = Event(
             event_id=event_id,

@@ -25,6 +25,7 @@ def setup_logging():
     # Set specific loggers to DEBUG level for more detailed output
     logging.getLogger('app.utils.data_loader').setLevel(logging.DEBUG)
     logging.getLogger('app.ui.photo_preview_tab').setLevel(logging.DEBUG)
+    logging.getLogger('app.ui.timeline_widget').setLevel(logging.DEBUG)
     
     logging.info("GeoEvent application starting...")
 

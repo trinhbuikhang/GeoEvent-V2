@@ -152,6 +152,30 @@ class GPSData:
 
         return None
 
+    def interpolate_chainage_by_position(self, latitude: float, longitude: float) -> Optional[float]:
+        """
+        Find chainage for a given latitude/longitude by finding the closest GPS point
+        Returns chainage of the closest point or None if no points available
+        """
+        if not self.points:
+            return None
+
+        # Find the closest point by Euclidean distance (simple approximation)
+        closest_point = None
+        min_distance = float('inf')
+
+        for point in self.points:
+            # Simple Euclidean distance (not great circle, but sufficient for close points)
+            distance = ((point.latitude - latitude) ** 2 + (point.longitude - longitude) ** 2) ** 0.5
+            if distance < min_distance:
+                min_distance = distance
+                closest_point = point
+
+        if closest_point:
+            return closest_point.chainage
+
+        return None
+
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization"""
         return {

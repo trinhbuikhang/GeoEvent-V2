@@ -169,7 +169,9 @@ class DataLoader:
             'path': fileid_folder.path,
             'image_count': len(image_paths),
             'first_image_timestamp': None,
-            'last_image_timestamp': None
+            'last_image_timestamp': None,
+            'first_image_coords': None,
+            'last_image_coords': None
         }
         
         if image_paths:
@@ -180,6 +182,14 @@ class DataLoader:
                 
                 metadata['first_image_timestamp'] = first_metadata.get('timestamp')
                 metadata['last_image_timestamp'] = last_metadata.get('timestamp')
+                
+                # Also store coordinates
+                if first_metadata.get('latitude') is not None and first_metadata.get('longitude') is not None:
+                    metadata['first_image_coords'] = (first_metadata['latitude'], first_metadata['longitude'])
+                
+                if last_metadata.get('latitude') is not None and last_metadata.get('longitude') is not None:
+                    metadata['last_image_coords'] = (last_metadata['latitude'], last_metadata['longitude'])
+                    
             except Exception as e:
                 print(f"Warning: Could not extract image metadata: {e}")
         

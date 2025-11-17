@@ -408,7 +408,9 @@ class PhotoPreviewTab(QWidget):
                 if self.fileid_metadata.get('first_image_timestamp') and self.fileid_metadata.get('last_image_timestamp'):
                     self.timeline.set_image_time_range(
                         self.fileid_metadata['first_image_timestamp'],
-                        self.fileid_metadata['last_image_timestamp']
+                        self.fileid_metadata['last_image_timestamp'],
+                        self.fileid_metadata.get('first_image_coords'),
+                        self.fileid_metadata.get('last_image_coords')
                     )
 
                 # Update folder info display
