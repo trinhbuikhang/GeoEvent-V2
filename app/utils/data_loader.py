@@ -81,6 +81,11 @@ class DataLoader:
                     logging.warning(f"Could not extract plate from first image: {e}")
             
             self.lane_manager.set_fileid_folder(fileid_folder.path, plate)
+            
+            # Set end time for lane extension
+            if result['metadata'].get('last_image_timestamp'):
+                self.lane_manager.set_end_time(result['metadata']['last_image_timestamp'])
+            
             logging.info("Lane manager setup complete")
             
             logging.info(f"Successfully loaded all data for FileID: {fileid_folder.fileid}")

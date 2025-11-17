@@ -2,6 +2,12 @@
 Main Window for GeoEvent Application
 """
 
+import logging
+import os
+import csv
+from datetime import datetime
+from typing import List
+
 from PyQt6.QtWidgets import (
     QMainWindow, QVBoxLayout, QWidget, QHBoxLayout,
     QSplitter, QStatusBar, QMenuBar, QToolBar,
@@ -9,6 +15,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction, QActionGroup
+from PyQt6.QtWidgets import QApplication
 
 from .ui.photo_preview_tab import PhotoPreviewTab
 from .utils.settings_manager import SettingsManager
@@ -197,6 +204,8 @@ class MainWindow(QMainWindow):
         """Load a specific FileID"""
         try:
             self.photo_tab.load_fileid(fileid_folder)
+            # Update the FileIDManager's current index to match the loaded FileID
+            self.fileid_manager.set_current_fileid(fileid_folder.fileid)
             self.update_fileid_navigation()
             self.status_label.setText("Ready")
         except Exception as e:
@@ -207,6 +216,9 @@ class MainWindow(QMainWindow):
 
     def prev_fileid(self):
         """Navigate to previous FileID"""
+        # Auto-save current data before switching
+        self.auto_save_current_data()
+        
         prev_fileid = self.fileid_manager.prev_fileid()
         if prev_fileid:
             self.load_fileid(prev_fileid)
@@ -214,10 +226,137 @@ class MainWindow(QMainWindow):
 
     def next_fileid(self):
         """Navigate to next FileID"""
+        # Auto-save current data before switching
+        self.auto_save_current_data()
+        
         next_fileid = self.fileid_manager.next_fileid()
         if next_fileid:
             self.load_fileid(next_fileid)
             self.update_fileid_navigation()
+
+    def auto_save_current_data(self):
+        """Auto-save events and lane fixes for current FileID"""
+        if hasattr(self.photo_tab, 'current_fileid') and self.photo_tab.current_fileid:
+            # Save events if modified
+            if self.photo_tab.events_modified:
+                success = self.photo_tab.save_all_events_internal()
+                if success:
+                    logging.info(f"Auto-saved {len(self.photo_tab.events)} modified events")
+                else:
+                    logging.error("Failed to auto-save modified events")
+
+            # Save lane fixes if modified
+            if hasattr(self.photo_tab, 'lane_manager') and self.photo_tab.lane_manager.has_changes:
+                output_path = os.path.join(self.photo_tab.current_fileid.path, f"{self.photo_tab.current_fileid.fileid}_lane_fixes.csv")
+                success = self.photo_tab.export_manager.export_lane_fixes(self.photo_tab.lane_manager.lane_fixes, output_path)
+                if success:
+                    logging.info(f"Auto-saved {len(self.photo_tab.lane_manager.lane_fixes)} modified lane fixes to {output_path}")
+                    self.photo_tab.lane_manager.has_changes = False  # Reset after successful save
+                else:
+                    logging.error("Failed to auto-save modified lane fixes")
+
+    def auto_save_all_data_on_close(self):
+        """Auto-save all data when closing app"""
+        try:
+            # Check if we have FileID folders loaded
+            if not self.fileid_manager.fileid_list:
+                return
+
+            num_fileids = len(self.fileid_manager.fileid_list)
+
+            if num_fileids == 1:
+                # Single FileID: save directly to the folder
+                self._save_single_fileid_data()
+            else:
+                # Multiple FileIDs: merge and save to root folder
+                self._merge_and_save_multi_fileid_data()
+
+        except Exception as e:
+            logging.error(f"Error during auto-save on close: {str(e)}")
+            QMessageBox.warning(
+                self, "Save Error",
+                f"Failed to save data automatically: {str(e)}"
+            )
+
+    def _save_single_fileid_data(self):
+        """Save data for single FileID folder"""
+        if not hasattr(self.photo_tab, 'current_fileid') or not self.photo_tab.current_fileid:
+            return
+
+        # Save events if modified
+        if self.photo_tab.events_modified:
+            success = self.photo_tab.save_all_events_internal()
+            if success:
+                logging.info(f"Auto-saved {len(self.photo_tab.events)} modified events")
+            else:
+                logging.error("Failed to auto-save modified events")
+
+        # Save lane fixes if modified
+        if hasattr(self.photo_tab, 'lane_manager') and self.photo_tab.lane_manager.has_changes:
+            output_path = os.path.join(self.photo_tab.current_fileid.path, f"{self.photo_tab.current_fileid.fileid}_lane_fixes.csv")
+            success = self.photo_tab.export_manager.export_lane_fixes(self.photo_tab.lane_manager.lane_fixes, output_path)
+            if success:
+                logging.info(f"Auto-saved {len(self.photo_tab.lane_manager.lane_fixes)} modified lane fixes to {output_path}")
+                self.photo_tab.lane_manager.has_changes = False  # Reset after successful save
+            else:
+                logging.error("Failed to auto-save modified lane fixes")
+
+    def _merge_and_save_multi_fileid_data(self):
+        """Merge data from all FileID folders and save to root folder"""
+        if not self.fileid_manager.fileid_list:
+            return
+
+        root_folder = os.path.dirname(self.fileid_manager.fileid_list[0].path)
+
+        # Check if any data has changes
+        has_event_changes = False
+        has_lane_changes = False
+
+        for fileid_folder in self.fileid_manager.fileid_list:
+            # Check events for this FileID
+            if hasattr(self.photo_tab, 'current_fileid') and self.photo_tab.current_fileid == fileid_folder:
+                if self.photo_tab.events_modified:
+                    has_event_changes = True
+            # Check lane fixes for this FileID
+            try:
+                from .models.lane_model import LaneManager
+                temp_lane_manager = LaneManager()
+                temp_lane_manager.set_fileid_folder(fileid_folder.path)
+                if temp_lane_manager.has_changes:
+                    has_lane_changes = True
+            except:
+                pass
+
+        # Collect all data from FileID folders
+        all_events = []
+        all_lane_fixes = []
+
+        for fileid_folder in self.fileid_manager.fileid_list:
+            # Load events for this FileID
+            fileid_events = self._load_events_for_fileid(fileid_folder)
+            all_events.extend(fileid_events)
+
+            # Load lane fixes for this FileID
+            fileid_lane_fixes = self._load_lane_fixes_for_fileid(fileid_folder)
+            all_lane_fixes.extend(fileid_lane_fixes)
+
+        # Save merged events to root folder if there are changes or new events
+        if has_event_changes or all_events:
+            merged_driveevt_path = os.path.join(root_folder, "merged.driveevt")
+            success = self._save_merged_events(all_events, merged_driveevt_path)
+            if success:
+                logging.info(f"Saved {len(all_events)} merged events to {merged_driveevt_path}")
+            else:
+                logging.error("Failed to save merged events")
+
+        # Save merged lane fixes to root folder if there are changes or new lane fixes
+        if has_lane_changes or all_lane_fixes:
+            merged_lane_path = os.path.join(root_folder, "merged_lane_fixes.csv")
+            success = self._save_merged_lane_fixes(all_lane_fixes, merged_lane_path)
+            if success:
+                logging.info(f"Saved {len(all_lane_fixes)} merged lane fixes to {merged_lane_path}")
+            else:
+                logging.error("Failed to save merged lane fixes")
 
     def update_fileid_navigation(self):
         """Update FileID navigation buttons"""
@@ -228,8 +367,15 @@ class MainWindow(QMainWindow):
 
             self.fileid_label.setText(f"FileID: {current.fileid} ({index + 1}/{total})")
 
-            self.photo_tab.prev_fileid_btn.setEnabled(index > 0)
-            self.photo_tab.next_fileid_btn.setEnabled(index < total - 1)
+            prev_enabled = index > 0
+            next_enabled = index < total - 1
+
+            self.photo_tab.prev_fileid_btn.setEnabled(prev_enabled)
+            self.photo_tab.next_fileid_btn.setEnabled(next_enabled)
+
+            logging.info(f"Navigation updated: index={index}, total={total}, prev_enabled={prev_enabled}, next_enabled={next_enabled}")
+        else:
+            logging.warning("No current FileID for navigation update")
 
     def set_theme(self, theme_name):
         """Switch application theme"""
@@ -263,30 +409,6 @@ class MainWindow(QMainWindow):
         """Handle autosave completion"""
         self.autosave_label.setText(timestamp.strftime("%H:%M:%S"))
 
-    def prev_fileid(self):
-        """Navigate to previous FileID"""
-        if self.photo_tab and hasattr(self.photo_tab, 'current_fileid'):
-            prev_fileid = self.fileid_manager.prev_fileid()
-            if prev_fileid:
-                self.photo_tab.load_fileid(prev_fileid)
-                self.update_fileid_label()
-
-    def next_fileid(self):
-        """Navigate to next FileID"""
-        if self.photo_tab and hasattr(self.photo_tab, 'current_fileid'):
-            next_fileid = self.fileid_manager.next_fileid()
-            if next_fileid:
-                self.photo_tab.load_fileid(next_fileid)
-                self.update_fileid_label()
-
-    def update_fileid_label(self):
-        """Update FileID label in status bar"""
-        current = self.fileid_manager.get_current_fileid()
-        if current and hasattr(self, 'fileid_label'):
-            self.fileid_label.setText(f"FileID: {current.fileid}")
-        elif hasattr(self, 'fileid_label'):
-            self.fileid_label.setText("No FileID loaded")
-
     def show_about(self):
         """Show about dialog"""
         QMessageBox.about(
@@ -299,14 +421,116 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         """Handle application close"""
+        # Show saving dialog
+        save_dialog = QMessageBox(self)
+        save_dialog.setWindowTitle("Saving Data")
+        save_dialog.setText("Saving .driverevt and lane fix files...\nPlease wait.")
+        save_dialog.setStandardButtons(QMessageBox.StandardButton.NoButton)  # No buttons, just informative
+        save_dialog.setModal(True)
+        save_dialog.show()
+
+        # Force UI update to show the dialog
+        QApplication.processEvents()
+
+        try:
+            # Auto-save all data before closing
+            self.auto_save_all_data_on_close()
+        finally:
+            # Close the dialog after a short delay to show completion
+            QTimer.singleShot(2000, save_dialog.close)  # 2 second delay
+
         # Save window state
         settings = self.settings_manager.load_settings()
         geometry = self.saveGeometry()
         settings['geometry'] = geometry.toBase64().data().decode('latin1')  # Convert QByteArray to base64 string
         self.settings_manager.save_settings(settings)
 
+        # Accept the close event after dialog closes
+        QTimer.singleShot(2000, lambda: event.accept())
+
         # Stop managers
         self.memory_manager.stop()
         self.autosave_manager.stop()
 
         event.accept()
+
+    def _load_events_for_fileid(self, fileid_folder) -> List:
+        """Load events for a specific FileID folder"""
+        from .utils.data_loader import DataLoader
+
+        try:
+            data_loader = DataLoader()
+            data = data_loader.load_fileid_data(fileid_folder)
+            return data.get('events', [])
+        except Exception as e:
+            logging.error(f"Failed to load events for {fileid_folder.fileid}: {str(e)}")
+            return []
+
+    def _load_lane_fixes_for_fileid(self, fileid_folder) -> List:
+        """Load lane fixes for a specific FileID folder"""
+        from .models.lane_model import LaneManager
+
+        try:
+            lane_manager = LaneManager()
+            lane_manager.set_fileid_folder(fileid_folder.path)
+            return lane_manager.get_lane_fixes()
+        except Exception as e:
+            logging.error(f"Failed to load lane fixes for {fileid_folder.fileid}: {str(e)}")
+            return []
+
+    def _save_merged_events(self, events: List, output_path: str) -> bool:
+        """Save merged events to file"""
+        from .utils.file_parser import save_driveevt
+        import os
+
+        try:
+            # Sort events by timestamp
+            sorted_events = sorted(events, key=lambda e: e.timestamp_utc if hasattr(e, 'timestamp_utc') else datetime.min)
+
+            # Extract fileid from output_path (filename without extension)
+            fileid = os.path.splitext(os.path.basename(output_path))[0]
+
+            # Save all events - each will use its own file_id for session token, fallback to fileid from path
+            success = save_driveevt(sorted_events, output_path, fileid)
+            return success
+        except Exception as e:
+            logging.error(f"Failed to save merged events: {str(e)}")
+            return False
+
+    def _save_merged_lane_fixes(self, lane_fixes: List, output_path: str) -> bool:
+        """Save merged lane fixes to file"""
+        try:
+            # Sort lane fixes by timestamp
+            sorted_fixes = sorted(lane_fixes, key=lambda f: f.from_time)
+
+            with open(output_path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                # Write header
+                writer.writerow(['Plate', 'From', 'To', 'Lane', 'Ignore', 'RegionID', 'RoadID', 'Travel'])
+
+                # Write data - format times as DD/MM/YY HH:MM:SS.mmm (same as individual files)
+                for fix in sorted_fixes:
+                    # Convert times to DD/MM/YY HH:MM:SS.mmm format (day/month/year hour:minute:second.millisecond)
+                    from_milliseconds = fix.from_time.microsecond // 1000
+                    from_time_str = fix.from_time.strftime('%d/%m/%y %H:%M:%S') + f'.{from_milliseconds:03d}'
+                    
+                    to_milliseconds = fix.to_time.microsecond // 1000
+                    to_time_str = fix.to_time.strftime('%d/%m/%y %H:%M:%S') + f'.{to_milliseconds:03d}'
+                    
+                    writer.writerow([
+                        fix.plate,
+                        from_time_str,
+                        to_time_str,
+                        fix.lane,
+                        '',  # Ignore
+                        '',  # RegionID
+                        '',  # RoadID
+                        'N'  # Travel direction
+                    ])
+
+            logging.info(f"Saved {len(sorted_fixes)} merged lane fixes to {output_path}")
+            return True
+
+        except Exception as e:
+            logging.error(f"Failed to save merged lane fixes: {str(e)}")
+            return False

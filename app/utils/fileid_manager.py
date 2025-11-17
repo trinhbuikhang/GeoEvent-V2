@@ -74,6 +74,11 @@ class FileIDManager:
             # Load state and update current index
             self._load_state()
 
+            # If no valid current index after loading state, default to first FileID
+            if self.current_index == -1 and self.fileid_list:
+                self.current_index = 0
+                self._save_state()
+
         except PermissionError:
             print(f"Permission denied accessing {parent_path}")
 

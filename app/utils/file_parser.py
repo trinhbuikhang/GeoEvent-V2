@@ -245,6 +245,11 @@ def save_driveevt(events: List[Event], file_path: str, fileid: str = "") -> bool
                 'Event', 'IsSpanEvent', 'SpanEvent', 'IsSpanStartEvent', 'IsSpanEndEvent'
             ])
 
+            # Ensure all events have file_id set to the provided fileid if missing
+            for event in events:
+                if not getattr(event, 'file_id', ''):
+                    event.file_id = fileid
+
             # Create list of all event rows (start and end events)
             event_rows = []
 
@@ -258,8 +263,9 @@ def save_driveevt(events: List[Event], file_path: str, fileid: str = "") -> bool
                 start_time_nz = event.start_time.astimezone(nz_tz).strftime('%m/%d/%Y %H:%M:%S')
                 end_time_nz = event.end_time.astimezone(nz_tz).strftime('%m/%d/%Y %H:%M:%S')
 
-                # SessionToken: remove first 2 and last 2 characters of FileID
-                session_token = fileid[2:-2] if len(fileid) > 4 else fileid
+                # SessionToken: use event's file_id, remove first 2 and last 2 characters
+                event_fileid = getattr(event, 'file_id', fileid)
+                session_token = event_fileid[2:-2] if len(event_fileid) > 4 else event_fileid
 
                 # Add start event row
                 event_rows.append({

@@ -40,8 +40,11 @@ class ExportManager:
                 # Write data
                 for fix in lane_fixes:
                     # Convert times to DD/MM/YY HH:MM:SS.mmm format (day/month/year hour:minute:second.millisecond)
-                    from_time_str = fix.from_time.strftime('%d/%m/%y %H:%M:%S.%f')[:-3]  # Remove microseconds to milliseconds
-                    to_time_str = fix.to_time.strftime('%d/%m/%y %H:%M:%S.%f')[:-3]
+                    from_milliseconds = fix.from_time.microsecond // 1000
+                    from_time_str = fix.from_time.strftime('%d/%m/%y %H:%M:%S') + f'.{from_milliseconds:03d}'
+                    
+                    to_milliseconds = fix.to_time.microsecond // 1000
+                    to_time_str = fix.to_time.strftime('%d/%m/%y %H:%M:%S') + f'.{to_milliseconds:03d}'
                     
                     writer.writerow([
                         fix.plate,
@@ -113,8 +116,8 @@ class ExportManager:
                     try:
                         fix = LaneFix(
                             plate=str(row['Plate']),
-                            from_time=datetime.strptime(str(row['From_Time']), '%Y-%m-%d %H:%M:%S'),
-                            to_time=datetime.strptime(str(row['To_Time']), '%Y-%m-%d %H:%M:%S'),
+                            from_time=datetime.strptime(str(row['From']), '%d/%m/%y %H:%M:%S.%f'),
+                            to_time=datetime.strptime(str(row['To']), '%d/%m/%y %H:%M:%S.%f'),
                             lane=str(row['Lane']),
                             file_id=str(row['FileID'])
                         )

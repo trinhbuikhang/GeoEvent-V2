@@ -318,6 +318,26 @@ class TimelineWidget(QWidget):
 
                 logging.info(f"TimelineWidget: Expanded time range to include events: {start_time} to {end_time}")
 
+        # If we have lane fixes, expand the view range to include them
+        if hasattr(self, 'lane_manager') and self.lane_manager:
+            lane_fixes = self.lane_manager.get_lane_fixes()
+            if lane_fixes:
+                lane_times = []
+                for fix in lane_fixes:
+                    fix.from_time = self.ensure_timezone(fix.from_time)
+                    fix.to_time = self.ensure_timezone(fix.to_time)
+                    lane_times.extend([fix.from_time, fix.to_time])
+
+                if lane_times:
+                    min_lane_time = min(lane_times)
+                    max_lane_time = max(lane_times)
+
+                    # Expand image range to include lane fixes
+                    start_time = min(start_time, min_lane_time)
+                    end_time = max(end_time, max_lane_time)
+
+                    logging.info(f"TimelineWidget: Expanded time range to include lane fixes: {start_time} to {end_time}")
+
         # Add padding to show full range
         padding = timedelta(minutes=5)  # 5 minutes padding
         self.view_start_time = start_time - padding
@@ -1219,7 +1239,8 @@ class TimelineWidget(QWidget):
             start_time=self.new_event_start,
             end_time=self.new_event_end,
             start_chainage=start_chainage,
-            end_chainage=end_chainage
+            end_chainage=end_chainage,
+            file_id=getattr(self.photo_tab, 'current_fileid', '') if self.photo_tab else ''
         )
 
         logging.info(f"TimelineWidget: Created new event '{self.new_event_name}' (ID: {event_id}) from {self.new_event_start} to {self.new_event_end}")

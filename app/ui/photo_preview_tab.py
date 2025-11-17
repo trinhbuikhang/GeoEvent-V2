@@ -48,6 +48,7 @@ class PhotoPreviewTab(QWidget):
         self.lane_manager = None  # Will be set from data loader
 
         self.image_cache = {}  # Simple cache for loaded images
+        self.events_modified = False  # Track if events have been modified
         self.current_metadata = {}
         self.scroll_area = None  # Reference to scroll area for image display
 
@@ -104,7 +105,7 @@ class PhotoPreviewTab(QWidget):
         right_layout.addLayout(top_row_layout)
 
         # Lanecode button control
-        lanecode_group = QGroupBox("Lanecode button control")
+        lanecode_group = QGroupBox("LaneCode")
         lanecode_group.setStyleSheet("QGroupBox { border: 2px solid black; padding: 10px; }")
         lanecode_layout = QVBoxLayout()
         self.setup_lane_controls(lanecode_layout)
@@ -114,7 +115,7 @@ class PhotoPreviewTab(QWidget):
         right_layout.addWidget(lanecode_group, stretch=1)
 
         # FileID button control
-        fileid_group = QGroupBox("FileID button control")
+        fileid_group = QGroupBox("FileID")
         fileid_group.setStyleSheet("QGroupBox { border: 2px solid black; padding: 10px; }")
         fileid_layout = QHBoxLayout()
         self.setup_fileid_controls(fileid_layout)
@@ -147,7 +148,7 @@ class PhotoPreviewTab(QWidget):
         bottom_layout.setSpacing(10)
 
         # Photo navigation buttons
-        nav_group = QGroupBox("Photo navi button")
+        nav_group = QGroupBox("Photo Navigation")
         nav_group.setStyleSheet("QGroupBox { border: 2px solid black; padding: 5px; }")
         nav_layout = QHBoxLayout()
         self.setup_navigation_buttons(nav_layout)
@@ -220,6 +221,19 @@ class PhotoPreviewTab(QWidget):
         for code, name in zip(lane_codes, lane_names):
             btn = QPushButton(name)
             btn.setCheckable(True)
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #1976D2;
+                    color: white;
+                    border: 1px solid #0D47A1;
+                    padding: 5px;
+                }
+                QPushButton:checked {
+                    background-color: #4CAF50;
+                    color: white;
+                    border: 2px solid #388E3C;
+                }
+            """)
             btn.clicked.connect(lambda checked, c=code: self.assign_lane(c))
             btn.setMinimumHeight(30)
             self.lane_buttons.addButton(btn)
@@ -231,11 +245,39 @@ class PhotoPreviewTab(QWidget):
         turn_row = QHBoxLayout()
         
         self.turn_right_btn = QPushButton("TM ↱ (Turn Right)")
+        self.turn_right_btn.setCheckable(True)
+        self.turn_right_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #1976D2;
+                color: white;
+                border: 1px solid #0D47A1;
+                padding: 5px;
+            }
+            QPushButton:checked {
+                background-color: #FFF9C4;
+                color: black;
+                border: 2px solid #FBC02D;
+            }
+        """)
         self.turn_right_btn.clicked.connect(lambda: self.start_turn('TM'))
         self.turn_right_btn.setMinimumHeight(30)
         turn_row.addWidget(self.turn_right_btn)
 
         self.turn_left_btn = QPushButton("TK ↰ (Turn Left)")
+        self.turn_left_btn.setCheckable(True)
+        self.turn_left_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #1976D2;
+                color: white;
+                border: 1px solid #0D47A1;
+                padding: 5px;
+            }
+            QPushButton:checked {
+                background-color: #FFF9C4;
+                color: black;
+                border: 2px solid #FBC02D;
+            }
+        """)
         self.turn_left_btn.clicked.connect(lambda: self.start_turn('TK'))
         self.turn_left_btn.setMinimumHeight(30)
         turn_row.addWidget(self.turn_left_btn)
@@ -329,6 +371,7 @@ class PhotoPreviewTab(QWidget):
                 for key, value in changes.items():
                     setattr(event, key, value)
                 break
+        self.events_modified = True  # Mark events as modified
         # Update timeline display
         self.timeline.update()
 
@@ -336,6 +379,7 @@ class PhotoPreviewTab(QWidget):
         """Handle event deletion"""
         logging.info(f"PhotoPreviewTab: Deleting event {event_id}")
         self.events = [event for event in self.events if event.event_id != event_id]
+        self.events_modified = True  # Mark events as modified
         logging.info(f"PhotoPreviewTab: {len(self.events)} events remaining after deletion")
         # Update timeline display without changing view range
         self.timeline.set_events(self.events, update_view_range=False)
@@ -344,6 +388,7 @@ class PhotoPreviewTab(QWidget):
         """Handle event creation"""
         logging.info(f"PhotoPreviewTab: Adding new event {event.event_id}")
         self.events.append(event)
+        self.events_modified = True  # Mark events as modified
         # Update timeline display
         self.timeline.set_events(self.events, update_view_range=False)
 
@@ -402,6 +447,13 @@ class PhotoPreviewTab(QWidget):
             
             logging.info(f"PhotoPreviewTab: Successfully loaded FileID {fileid_folder.fileid}")
             self.main_window.update_fileid_navigation()
+
+            # Reset lane button states when switching FileID
+            for button in self.lane_buttons.buttons():
+                button.setChecked(False)
+            self.turn_right_btn.setChecked(False)
+            self.turn_left_btn.setChecked(False)
+            self.update_lane_display()
 
         except Exception as e:
             logging.error(f"PhotoPreviewTab: Failed to load FileID {fileid_folder.fileid}: {str(e)}", exc_info=True)
@@ -613,6 +665,10 @@ class PhotoPreviewTab(QWidget):
 
         if success:
             self.update_lane_display()
+            # Reset turn buttons if turn was ended by lane assignment
+            if not self.lane_manager.turn_active:
+                self.turn_right_btn.setChecked(False)
+                self.turn_left_btn.setChecked(False)
         else:
             logging.warning("PhotoPreviewTab: assign_lane failed - overlap detected")
 
@@ -638,6 +694,11 @@ class PhotoPreviewTab(QWidget):
             logging.info(f"PhotoPreviewTab: Ending active {turn_type} turn")
             self.lane_manager.end_turn(timestamp)
             self.update_lane_display()
+            # Reset turn button
+            if turn_type == 'TM':
+                self.turn_right_btn.setChecked(False)
+            elif turn_type == 'TK':
+                self.turn_left_btn.setChecked(False)
             return
 
         # Get selected lane from button group
@@ -666,6 +727,11 @@ class PhotoPreviewTab(QWidget):
         logging.info(f"PhotoPreviewTab: Final selected_lane='{selected_lane}', calling lane_manager.start_turn")
         self.lane_manager.start_turn(turn_type, timestamp, selected_lane)
         self.update_lane_display()
+        # Set turn button checked
+        if turn_type == 'TM':
+            self.turn_right_btn.setChecked(True)
+        elif turn_type == 'TK':
+            self.turn_left_btn.setChecked(True)
 
     def update_lane_display(self):
         """Update current lane display"""
@@ -719,6 +785,7 @@ class PhotoPreviewTab(QWidget):
             success = self.data_loader.save_events(self.events, self.current_fileid)
             if success:
                 logging.info(f"PhotoPreviewTab: Successfully saved {len(self.events)} events")
+                self.events_modified = False  # Reset change flag after successful save
             else:
                 logging.error("PhotoPreviewTab: Failed to save events")
             return success

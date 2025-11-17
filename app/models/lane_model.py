@@ -54,6 +54,8 @@ class LaneManager:
         self.turn_start_lane: Optional[str] = None
         self.fileid_folder: Optional[Path] = None
         self.plate: Optional[str] = None
+        self.end_time: Optional[datetime] = None  # End time of the folder
+        self.has_changes = False  # Track if there are unsaved changes
 
     def assign_lane(self, lane_code: str, timestamp: datetime) -> bool:
         """
@@ -67,6 +69,10 @@ class LaneManager:
         # Check for overlaps
         if self.check_overlap(timestamp):
             return False
+
+        # End any active turn when assigning a new lane
+        if self.turn_active:
+            self.end_turn(timestamp)
 
         # If same lane as current, extend period
         if self.current_lane == lane_code and self.lane_fixes:
@@ -88,6 +94,12 @@ class LaneManager:
             self.lane_fixes.append(lane_fix)
             self.current_lane = lane_code
 
+            # If this is the last lane assignment and we have end_time, extend to end
+            if self.end_time and not self._has_lane_after(timestamp):
+                lane_fix.to_time = self.end_time
+                logging.info(f"Extended lane {lane_code} to folder end time: {self.end_time}")
+
+        self.has_changes = True
         return True
 
     def start_turn(self, turn_type: str, timestamp: datetime, selected_lane: str = None):
@@ -126,6 +138,8 @@ class LaneManager:
         self.lane_fixes.append(lane_fix)
         self.current_lane = combined_lane
 
+        self.has_changes = True
+
     def end_turn(self, timestamp: datetime):
         """
         End turn period and resume previous lane
@@ -152,6 +166,15 @@ class LaneManager:
         # Reset turn state
         self.turn_active = False
         self.turn_start_lane = None
+
+        self.has_changes = True
+
+    def _has_lane_after(self, timestamp: datetime) -> bool:
+        """Check if there are any lane assignments after the given timestamp"""
+        for fix in self.lane_fixes:
+            if fix.from_time > timestamp:
+                return True
+        return False
 
     def check_overlap(self, timestamp: datetime) -> bool:
         """
@@ -181,6 +204,10 @@ class LaneManager:
         self.plate = plate
         self._load_lane_fixes()
 
+    def set_end_time(self, end_time: datetime):
+        """Set the end time of the folder for extending lanes"""
+        self.end_time = end_time
+
     def _get_lane_fix_path(self) -> Path:
         """Get the path to the lane fix CSV file"""
         if not self.fileid_folder:
@@ -206,21 +233,70 @@ class LaneManager:
             with open(lane_fix_path, 'r', newline='', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    # Parse timestamps - format is HH:MM:SS.sss (no date)
+                    # Parse timestamps - handle different formats
                     try:
-                        # Assume current date for time-only format
-                        today = datetime.now(timezone.utc).date()
-                        from_time_str = f"{today} {row['From']}"
-                        to_time_str = f"{today} {row['To']}"
+                        from_time_str = row['From']
+                        to_time_str = row['To']
                         
-                        from_time = datetime.strptime(from_time_str, '%Y-%m-%d %H:%M:%S.%f').replace(tzinfo=timezone.utc)
-                        to_time = datetime.strptime(to_time_str, '%Y-%m-%d %H:%M:%S.%f').replace(tzinfo=timezone.utc)
+                        # Try different time formats
+                        # Format 1: DD/MM/YY HH:MM:SS.sss (saved by export_manager)
+                        if '/' in from_time_str and len(from_time_str.split()) == 2:
+                            try:
+                                from_time = datetime.strptime(from_time_str, '%d/%m/%y %H:%M:%S.%f').replace(tzinfo=timezone.utc)
+                                to_time = datetime.strptime(to_time_str, '%d/%m/%y %H:%M:%S.%f').replace(tzinfo=timezone.utc)
+                            except ValueError:
+                                # Try without microseconds
+                                from_time = datetime.strptime(from_time_str, '%d/%m/%y %H:%M:%S').replace(tzinfo=timezone.utc)
+                                to_time = datetime.strptime(to_time_str, '%d/%m/%y %H:%M:%S').replace(tzinfo=timezone.utc)
+                        # Format 2: MM:SS.s (total minutes:seconds.tenth from start of day)
+                        elif ':' in from_time_str and from_time_str.count(':') == 1:
+                            try:
+                                from_parts = from_time_str.split(':')
+                                to_parts = to_time_str.split(':')
+                                
+                                from_total_minutes = int(from_parts[0])
+                                from_seconds = float(from_parts[1])
+                                to_total_minutes = int(to_parts[0])
+                                to_seconds = float(to_parts[1])
+                                
+                                # Convert to hours/minutes/seconds
+                                from_hour = from_total_minutes // 60
+                                from_minute = from_total_minutes % 60
+                                to_hour = to_total_minutes // 60
+                                to_minute = to_total_minutes % 60
+                                
+                                # Create datetime
+                                today = datetime.now(timezone.utc).date()
+                                from_time = datetime(today.year, today.month, today.day, 
+                                                   from_hour, from_minute, int(from_seconds), 
+                                                   int((from_seconds % 1) * 1000000), timezone.utc)
+                                to_time = datetime(today.year, today.month, today.day,
+                                                 to_hour, to_minute, int(to_seconds),
+                                                 int((to_seconds % 1) * 1000000), timezone.utc)
+                            except (ValueError, IndexError):
+                                # Fall back to assuming HH:MM:SS.s format
+                                from_time_str = f"00:{from_time_str}"
+                                to_time_str = f"00:{to_time_str}"
+                                today = datetime.now(timezone.utc).date()
+                                from_time_full = f"{today} {from_time_str}"
+                                to_time_full = f"{today} {to_time_str}"
+                                from_time = datetime.strptime(from_time_full, '%Y-%m-%d %H:%M:%S.%f').replace(tzinfo=timezone.utc)
+                                to_time = datetime.strptime(to_time_full, '%Y-%m-%d %H:%M:%S.%f').replace(tzinfo=timezone.utc)
+                        else:
+                            # Assume HH:MM:SS.s format
+                            today = datetime.now(timezone.utc).date()
+                            from_time_full = f"{today} {from_time_str}"
+                            to_time_full = f"{today} {to_time_str}"
+                            from_time = datetime.strptime(from_time_full, '%Y-%m-%d %H:%M:%S.%f').replace(tzinfo=timezone.utc)
+                            to_time = datetime.strptime(to_time_full, '%Y-%m-%d %H:%M:%S.%f').replace(tzinfo=timezone.utc)
                     except ValueError:
-                        # Try without microseconds
-                        from_time_str = f"{today} {row['From']}"
-                        to_time_str = f"{today} {row['To']}"
-                        from_time = datetime.strptime(from_time_str, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
-                        to_time = datetime.strptime(to_time_str, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
+                        try:
+                            # Try without microseconds
+                            from_time = datetime.strptime(from_time_full, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
+                            to_time = datetime.strptime(to_time_full, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
+                        except ValueError:
+                            logging.error(f"Could not parse time format: {from_time_str} or {to_time_str}")
+                            continue
 
                     lane_fix = LaneFix(
                         plate=row.get('Plate', ''),
@@ -236,6 +312,8 @@ class LaneManager:
         except Exception as e:
             logging.error(f"Error loading lane fixes from {lane_fix_path}: {e}")
             self.lane_fixes = []
+
+        self.has_changes = False  # Reset change flag after loading
 
     def _create_empty_lane_fix_file(self):
         """Create an empty lane fix CSV file with headers"""
@@ -280,6 +358,7 @@ class LaneManager:
                     ])
 
             logging.info(f"Saved {len(self.lane_fixes)} lane fixes to {lane_fix_path}")
+            self.has_changes = False  # Reset change flag after successful save
             return True
 
         except Exception as e:
