@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 from ..models.event_model import Event
 from ..models.gps_model import GPSData
+from ..models.lane_model import LaneManager
 from ..utils.file_parser import parse_driveevt, parse_driveiri, enrich_events_with_gps, save_driveevt
 from ..utils.image_utils import extract_image_metadata, validate_filename
 
@@ -25,7 +26,7 @@ class DataLoader:
     """
     
     def __init__(self):
-        pass
+        self.lane_manager = LaneManager()
     
     def load_fileid_data(self, fileid_folder) -> Dict[str, Any]:
         """
@@ -38,6 +39,7 @@ class DataLoader:
             'events': [],
             'gps_data': None,
             'image_paths': [],
+            'lane_manager': self.lane_manager,
             'metadata': {}
         }
         
@@ -67,6 +69,19 @@ class DataLoader:
             logging.debug("Extracting FileID metadata...")
             result['metadata'] = self._extract_fileid_metadata(fileid_folder, result['image_paths'])
             logging.info("FileID metadata extracted")
+            
+            # Setup lane manager
+            logging.debug("Setting up lane manager...")
+            plate = None
+            if result['image_paths']:
+                try:
+                    first_metadata = extract_image_metadata(result['image_paths'][0])
+                    plate = first_metadata.get('plate')
+                except Exception as e:
+                    logging.warning(f"Could not extract plate from first image: {e}")
+            
+            self.lane_manager.set_fileid_folder(fileid_folder.path, plate)
+            logging.info("Lane manager setup complete")
             
             logging.info(f"Successfully loaded all data for FileID: {fileid_folder.fileid}")
             

@@ -102,6 +102,7 @@ class TimelineWidget(QWidget):
         self.events: List[Event] = []
         self.gps_data: Optional[GPSData] = None
         self.current_position: Optional[datetime] = None
+        self.lane_manager = None
 
         # View parameters
         self.view_start_time: Optional[datetime] = None
@@ -147,6 +148,11 @@ class TimelineWidget(QWidget):
     def set_gps_data(self, gps_data: GPSData):
         """Set GPS data for chainage calculations."""
         self.gps_data = gps_data
+
+    def set_lane_manager(self, lane_manager):
+        """Set lane manager for displaying lane periods."""
+        self.lane_manager = lane_manager
+        self.timeline_area.update()
 
     def get_chainage_at_time(self, timestamp: datetime) -> float:
         """Get chainage value at specific timestamp using GPS data."""
@@ -437,6 +443,9 @@ class TimelineWidget(QWidget):
         # Draw events
         self.paint_events(painter, rect, pixels_per_second)
 
+        # Draw lane periods
+        self.paint_lane_periods(painter, rect, pixels_per_second)
+
         # Draw current position
         if self.current_position:
             self.paint_current_position(painter, rect, pixels_per_second)
@@ -649,6 +658,38 @@ class TimelineWidget(QWidget):
             painter.setFont(font)
             label = event.event_name
             painter.drawText(int(visible_start) + 2, y + 12, label)
+
+    def paint_lane_periods(self, painter: QPainter, rect: QRect, pixels_per_second: float):
+        """Paint lane periods below the timeline"""
+        if not hasattr(self, 'lane_manager') or not self.lane_manager:
+            return
+
+        lane_fixes = self.lane_manager.get_lane_fixes()
+        if not lane_fixes:
+            return
+
+        # Draw lane periods as thin horizontal bars below the marker
+        lane_bar_y = rect.bottom() + 5  # Just below the timeline
+        lane_bar_height = 3  # Thin bar
+
+        for fix in lane_fixes:
+            start_x = self.time_to_pixel(fix.from_time, pixels_per_second, rect.left())
+            end_x = self.time_to_pixel(fix.to_time, pixels_per_second, rect.left())
+
+            if end_x <= rect.left() or start_x >= rect.right():
+                continue  # Not visible
+
+            # Clip to visible area
+            visible_start = max(start_x, rect.left())
+            visible_end = min(end_x, rect.right())
+            width = visible_end - visible_start
+
+            if width < 1:
+                continue
+
+            # Get lane color
+            color = QColor(self.lane_manager.get_lane_color(fix.lane))
+            painter.fillRect(int(visible_start), lane_bar_y, int(width), lane_bar_height, color)
 
     def paint_current_position(self, painter: QPainter, rect: QRect, pixels_per_second: float):
         """Paint current position marker"""
@@ -1028,17 +1069,17 @@ class TimelineWidget(QWidget):
             # Create tooltip with event information
             tooltip_lines = []
             tooltip_lines.append(f"<b>{hovered_event.event_name}</b>")
-            tooltip_lines.append(f"ID: {hovered_event.event_id}")
+            #tooltip_lines.append(f"ID: {hovered_event.event_id}")
             tooltip_lines.append(f"Start: {hovered_event.start_time.strftime('%H:%M:%S')}")
             tooltip_lines.append(f"End: {hovered_event.end_time.strftime('%H:%M:%S')}")
             tooltip_lines.append(f"Duration: {hovered_event.duration_seconds:.1f}s")
             tooltip_lines.append(f"Chainage: {hovered_event.start_chainage:.1f}m - {hovered_event.end_chainage:.1f}m")
             tooltip_lines.append(f"Length: {hovered_event.length_meters:.1f}m")
             
-            if hovered_event.start_lat and hovered_event.start_lon:
-                tooltip_lines.append(f"Start GPS: {hovered_event.start_lat:.6f}, {hovered_event.start_lon:.6f}")
-            if hovered_event.end_lat and hovered_event.end_lon:
-                tooltip_lines.append(f"End GPS: {hovered_event.end_lat:.6f}, {hovered_event.end_lon:.6f}")
+            # if hovered_event.start_lat and hovered_event.start_lon:
+            #     tooltip_lines.append(f"Start GPS: {hovered_event.start_lat:.6f}, {hovered_event.start_lon:.6f}")
+            # if hovered_event.end_lat and hovered_event.end_lon:
+            #     tooltip_lines.append(f"End GPS: {hovered_event.end_lat:.6f}, {hovered_event.end_lon:.6f}")
             
             tooltip = "<br>".join(tooltip_lines)
             self.timeline_area.setToolTip(tooltip)

@@ -45,7 +45,7 @@ class PhotoPreviewTab(QWidget):
         self.current_index = -1
         self.events: List[Event] = []
         self.gps_data: Optional[GPSData] = None
-        self.lane_manager = LaneManager()
+        self.lane_manager = None  # Will be set from data loader
 
         self.image_cache = {}  # Simple cache for loaded images
         self.current_metadata = {}
@@ -153,28 +153,6 @@ class PhotoPreviewTab(QWidget):
         self.setup_navigation_buttons(nav_layout)
         nav_group.setLayout(nav_layout)
         bottom_layout.addWidget(nav_group)
-
-        # Save event button
-        save_event_group = QGroupBox("Save event button")
-        save_event_group.setStyleSheet("QGroupBox { border: 2px solid black; padding: 5px; }")
-        save_event_layout = QVBoxLayout()
-        self.save_events_btn = QPushButton("Save Events")
-        self.save_events_btn.clicked.connect(self.save_all_events)
-        self.save_events_btn.setMinimumHeight(40)
-        save_event_layout.addWidget(self.save_events_btn)
-        save_event_group.setLayout(save_event_layout)
-        bottom_layout.addWidget(save_event_group)
-
-        # Save lane code button
-        save_lane_group = QGroupBox("Save lane code button")
-        save_lane_group.setStyleSheet("QGroupBox { border: 2px solid black; padding: 5px; }")
-        save_lane_layout = QVBoxLayout()
-        self.save_lane_btn = QPushButton("Save Lane Codes")
-        self.save_lane_btn.clicked.connect(self.save_lane_codes)
-        self.save_lane_btn.setMinimumHeight(40)
-        save_lane_layout.addWidget(self.save_lane_btn)
-        save_lane_group.setLayout(save_lane_layout)
-        bottom_layout.addWidget(save_lane_group)
 
         main_layout.addLayout(bottom_layout)
 
@@ -385,6 +363,7 @@ class PhotoPreviewTab(QWidget):
             self.gps_data = data['gps_data']
             self.image_paths = data['image_paths']
             self.fileid_metadata = data['metadata']
+            self.lane_manager = data['lane_manager']  # Use the lane manager from data loader
             
             logging.info(f"PhotoPreviewTab: Stored {len(self.events)} events, {len(self.image_paths)} images")
 
@@ -404,6 +383,9 @@ class PhotoPreviewTab(QWidget):
                 if self.gps_data:
                     self.timeline.set_gps_data(self.gps_data)
 
+                # Set lane manager for lane period display
+                self.timeline.set_lane_manager(self.lane_manager)
+
                 # Set timeline view range based on image folder time range (UTC)
                 if self.fileid_metadata.get('first_image_timestamp') and self.fileid_metadata.get('last_image_timestamp'):
                     self.timeline.set_image_time_range(
@@ -419,7 +401,7 @@ class PhotoPreviewTab(QWidget):
                 logging.warning("PhotoPreviewTab: No images found in FileID")
             
             logging.info(f"PhotoPreviewTab: Successfully loaded FileID {fileid_folder.fileid}")
-            self.main_window.update_fileid_label()
+            self.main_window.update_fileid_navigation()
 
         except Exception as e:
             logging.error(f"PhotoPreviewTab: Failed to load FileID {fileid_folder.fileid}: {str(e)}", exc_info=True)
@@ -626,7 +608,7 @@ class PhotoPreviewTab(QWidget):
         plate = self.current_metadata.get('plate', '')
         file_id = getattr(self, 'current_fileid', '')
 
-        success = self.lane_manager.assign_lane(lane_code, timestamp, plate, file_id)
+        success = self.lane_manager.assign_lane(lane_code, timestamp)
         logging.info(f"PhotoPreviewTab: lane_manager.assign_lane returned success={success}")
 
         if success:
@@ -682,7 +664,7 @@ class PhotoPreviewTab(QWidget):
                 logging.info(f"PhotoPreviewTab: No button selected, using current_lane='{selected_lane}'")
 
         logging.info(f"PhotoPreviewTab: Final selected_lane='{selected_lane}', calling lane_manager.start_turn")
-        self.lane_manager.start_turn(turn_type, timestamp, plate, file_id, selected_lane)
+        self.lane_manager.start_turn(turn_type, timestamp, selected_lane)
         self.update_lane_display()
 
     def update_lane_display(self):
