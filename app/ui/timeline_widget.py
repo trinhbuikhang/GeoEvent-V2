@@ -28,6 +28,54 @@ GRID_SNAP_SECONDS = 1
 INT32_MIN = -2147483648
 INT32_MAX = 2147483647
 
+class TimelineArea(QWidget):
+    """
+    Widget for painting the timeline and chainage
+    """
+
+    def __init__(self, parent_widget):
+        super().__init__()
+        self.parent_widget = parent_widget
+        self.setMouseTracking(True)
+
+    def paintEvent(self, event):
+        """Paint the timeline"""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        rect = self.rect()
+        timeline_height = rect.height() - CHAINAGE_SCALE_HEIGHT
+
+        # Draw background
+        painter.fillRect(rect, QColor('#1E2A38'))
+
+        # Draw timeline area
+        timeline_rect = QRect(0, TIMELINE_TOP_MARGIN, rect.width(), timeline_height - TIMELINE_TOP_MARGIN)
+        painter.fillRect(timeline_rect, QColor('#2C3E50'))
+
+        # Draw chainage scale area
+        chainage_rect = QRect(0, timeline_height, rect.width(), CHAINAGE_SCALE_HEIGHT)
+        painter.fillRect(chainage_rect, QColor('#34495E'))
+
+        if self.parent_widget.view_start_time and self.parent_widget.view_end_time:
+            self.parent_widget.paint_timeline(painter, timeline_rect)
+            self.parent_widget.paint_chainage_scale(painter, chainage_rect)
+
+    def mousePressEvent(self, event):
+        self.parent_widget.mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        self.parent_widget.mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self.parent_widget.mouseReleaseEvent(event)
+
+    def wheelEvent(self, event):
+        self.parent_widget.wheelEvent(event)
+
+    def contextMenuEvent(self, event):
+        self.parent_widget.contextMenuEvent(event)
+
 class TimelineWidget(QWidget):
     """
     Timeline widget for GPS-synchronized event display and editing
@@ -68,6 +116,7 @@ class TimelineWidget(QWidget):
         self.drag_start_pos = QPoint()
         self.selected_event: Optional[Event] = None
         self.drag_handle = None  # 'start', 'end', or 'move'
+        self.dragging_marker = False
 
         # Event creation state
         self.creating_event = False
@@ -116,6 +165,11 @@ class TimelineWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
 
+        # Timeline area
+        self.timeline_area = TimelineArea(self)
+        self.timeline_area.setMinimumHeight(200)
+        layout.addWidget(self.timeline_area)
+
         # Control bar
         control_layout = QHBoxLayout()
 
@@ -146,20 +200,8 @@ class TimelineWidget(QWidget):
         self.add_event_btn.clicked.connect(self.add_event_dialog)
         control_layout.addWidget(self.add_event_btn)
 
-        # Save event button
-        self.save_event_btn = QPushButton("💾 Save Event")
-        self.save_event_btn.clicked.connect(self.save_events)
-        control_layout.addWidget(self.save_event_btn)
-
-        # Save lane code button
-        self.save_lane_btn = QPushButton("💾 Save Lane Code")
-        self.save_lane_btn.clicked.connect(self.save_lane_codes)
-        control_layout.addWidget(self.save_lane_btn)
-
         control_layout.addStretch()
         layout.addLayout(control_layout)
-
-        # Timeline area will be painted in paintEvent
 
     def ensure_timezone(self, dt: datetime) -> datetime:
         """Ensure datetime has UTC timezone"""
@@ -183,7 +225,7 @@ class TimelineWidget(QWidget):
         
         if update_view_range:
             self.update_view_range()
-        self.update()
+        self.timeline_area.update()
 
     def set_current_position(self, timestamp: datetime):
         """Set current position marker"""
@@ -233,7 +275,7 @@ class TimelineWidget(QWidget):
                         self.view_end_time = max_event_time
                         self.view_start_time = self.view_end_time - current_span
 
-        self.update()
+        self.timeline_area.update()
 
     def set_image_time_range(self, start_time: datetime, end_time: datetime, start_coords: tuple = None, end_coords: tuple = None):
         """Set timeline view range based on image folder time range (always UTC)"""
@@ -283,7 +325,7 @@ class TimelineWidget(QWidget):
             self.zoom_level = 1.0
 
         self.layer_cache_dirty = True
-        self.update()
+        self.timeline_area.update()
 
     def update_view_range(self):
         """Update visible time range based on events"""
@@ -310,7 +352,7 @@ class TimelineWidget(QWidget):
     def zoom_changed(self, value):
         """Handle zoom slider change"""
         self.zoom_level = value / 10.0  # 0.1 to 1000.0
-        self.update()
+        self.timeline_area.update()
 
     def zoom_in(self):
         """Zoom in"""
@@ -325,7 +367,7 @@ class TimelineWidget(QWidget):
     def view_mode_changed(self, mode):
         """Handle view mode change"""
         # TODO: Implement space-based view
-        self.update()
+        self.timeline_area.update()
 
     def add_event_dialog(self, coords=None):
         """Show dialog to add new event"""
@@ -357,7 +399,7 @@ class TimelineWidget(QWidget):
             self.new_event_start = self.current_position
             self.new_event_end = self.current_position  # Will be updated during drag
             self.new_event_name = event_name.strip()
-            self.update()  # Repaint to show the marker
+            self.timeline_area.update()  # Repaint to show the marker
 
             logging.info(
                 f"Event '{event_name}' started at current position.\n"
@@ -371,28 +413,6 @@ class TimelineWidget(QWidget):
             self.new_event_end = None
             self.new_event_name = ""
 
-    def paintEvent(self, event):
-        """Paint the timeline"""
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        rect = self.rect()
-        timeline_height = rect.height() - CONTROLS_HEIGHT - CHAINAGE_SCALE_HEIGHT
-
-        # Draw background
-        painter.fillRect(rect, QColor('#1E2A38'))
-
-        # Draw timeline area
-        timeline_rect = QRect(0, TIMELINE_TOP_MARGIN, rect.width(), timeline_height)
-        painter.fillRect(timeline_rect, QColor('#2C3E50'))
-
-        # Draw chainage scale area
-        chainage_rect = QRect(0, TIMELINE_TOP_MARGIN + timeline_height, rect.width(), CHAINAGE_SCALE_HEIGHT)
-        painter.fillRect(chainage_rect, QColor('#34495E'))
-
-        if self.view_start_time and self.view_end_time:
-            self.paint_timeline(painter, timeline_rect)
-            self.paint_chainage_scale(painter, chainage_rect)
 
     def paint_timeline(self, painter: QPainter, rect: QRect):
         """Paint timeline content"""
@@ -638,29 +658,25 @@ class TimelineWidget(QWidget):
         x = self.time_to_pixel(self.current_position, pixels_per_second, rect.left())
 
         if rect.left() <= x <= rect.right():
-            painter.setPen(QPen(QColor('#FFFF00'), 4))  # Bright yellow, thicker
+            painter.setPen(QPen(QColor('#FFFF00'), 1))  # Bright yellow, thicker
             painter.drawLine(int(x), rect.top(), int(x), rect.bottom())
 
-            # Position indicator circle
+            # Large arrow pointing up above timeline area
+            painter.setPen(QPen(QColor('#FFFF00'), 1))  # Bright yellow, thicker
             painter.setBrush(QBrush(QColor('#FFFF00')))  # Bright yellow
-            painter.drawEllipse(int(x) - 6, rect.top() - 6, 12, 12)  # Larger circle
-
-            # Large arrow pointing down above timeline area
-            painter.setPen(QPen(QColor('#FFFF00'), 3))  # Bright yellow, thicker
-            painter.setBrush(QBrush(QColor('#FFFF00')))  # Bright yellow
-            arrow_size = 24  # Even larger arrow
-            arrow_y = 15  # Higher above timeline area
-            # Draw arrow triangle pointing down
+            arrow_size = 30  # Larger arrow for easier clicking
+            arrow_y = 0  # Position above timeline area
+            # Draw arrow triangle pointing up
             arrow_points = [
-                QPoint(int(x), arrow_y),  # Top point
-                QPoint(int(x) - arrow_size//2, arrow_y + arrow_size),  # Bottom left
-                QPoint(int(x) + arrow_size//2, arrow_y + arrow_size)   # Bottom right
+                QPoint(int(x), arrow_y + arrow_size),  # Bottom point
+                QPoint(int(x) - arrow_size//2, arrow_y),  # Top left
+                QPoint(int(x) + arrow_size//2, arrow_y)   # Top right
             ]
             painter.drawPolygon(arrow_points)
 
             # Draw vertical line from arrow to timeline
-            painter.setPen(QPen(QColor('#FFFF00'), 3))  # Bright yellow, thicker
-            painter.drawLine(int(x), arrow_y + arrow_size, int(x), rect.top())
+            painter.setPen(QPen(QColor('#FFFF00'), 1))  # Bright yellow, thicker
+            painter.drawLine(int(x), arrow_y + arrow_size, int(x), rect.bottom())
         else:
             logging.debug(f"TimelineWidget: Marker is outside visible area at x={x:.1f} (visible range: {rect.left()} to {rect.right()})")
 
@@ -737,27 +753,48 @@ class TimelineWidget(QWidget):
 
     def handle_left_click(self, event):
         """Handle left mouse click"""
-        rect = self.rect()
-        timeline_rect = QRect(0, TIMELINE_TOP_MARGIN, rect.width(), rect.height() - CONTROLS_HEIGHT)
+        rect = self.timeline_area.rect()
+        timeline_rect = QRect(0, TIMELINE_TOP_MARGIN, rect.width(), rect.height() - CHAINAGE_SCALE_HEIGHT)
+
+        logging.debug(f"TimelineWidget: Left click at pos {event.position().toPoint()}, timeline_rect {timeline_rect}")
+
+        # Check if clicking on current position marker (even outside timeline rect)
+        marker_clicked = self.is_click_on_current_position_marker(event.position().toPoint())
+        if marker_clicked:
+            logging.debug("TimelineWidget: Clicked on marker")
+            # Start dragging marker
+            self.dragging_marker = True
+            self.drag_start_pos = event.position().toPoint()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)  # Set cursor immediately when starting drag
+            # Position click
+            pixels_per_second = self.calculate_pixels_per_second(timeline_rect)
+            click_time = self.pixel_to_time(event.position().x(), pixels_per_second, timeline_rect.left())
+            gps_coords = (None, None)  # TODO: Get GPS coords from GPS data
+            self.position_clicked.emit(click_time, gps_coords)
+            return
 
         if not timeline_rect.contains(event.position().toPoint()):
+            logging.debug("TimelineWidget: Click outside timeline rect")
             return
 
         # Convert to time
         pixels_per_second = self.calculate_pixels_per_second(timeline_rect)
         click_time = self.pixel_to_time(event.position().x(), pixels_per_second, timeline_rect.left())
 
+        logging.debug(f"TimelineWidget: Click time {click_time}")
+
         # Handle event creation
         if self.creating_event:
             # Update end time during drag, but don't complete yet
             self.new_event_end = click_time
-            self.update()  # Repaint to show updated marker
+            self.timeline_area.update()  # Repaint to show updated marker
             return
 
         # Check for event at position
         clicked_event = self.get_event_at_position(event.position().toPoint(), timeline_rect, pixels_per_second)
 
         if clicked_event:
+            logging.debug(f"TimelineWidget: Clicked on event: {clicked_event.event_name}")
             # Start dragging
             self.selected_event = clicked_event
             self.dragging = True
@@ -775,14 +812,12 @@ class TimelineWidget(QWidget):
             else:
                 self.drag_handle = 'move'
         else:
-            # Position click
-            gps_coords = (None, None)  # TODO: Get GPS coords from GPS data
-            self.position_clicked.emit(click_time, gps_coords)
+            logging.debug("TimelineWidget: Click in empty area")
 
     def handle_right_click(self, event):
         """Handle right mouse click"""
-        rect = self.rect()
-        timeline_rect = QRect(0, TIMELINE_TOP_MARGIN, rect.width(), rect.height() - CONTROLS_HEIGHT)
+        rect = self.timeline_area.rect()
+        timeline_rect = QRect(0, TIMELINE_TOP_MARGIN, rect.width(), rect.height() - CHAINAGE_SCALE_HEIGHT)
 
         if not timeline_rect.contains(event.position().toPoint()):
             return
@@ -814,15 +849,18 @@ class TimelineWidget(QWidget):
         """Handle mouse move"""
         if self.dragging and self.selected_event:
             self.handle_drag(event)
+        elif self.dragging_marker:
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            self.handle_drag_marker(event)
         elif self.creating_event:
             # Update end time during event creation
-            rect = self.rect()
-            timeline_rect = QRect(0, TIMELINE_TOP_MARGIN, rect.width(), rect.height() - CONTROLS_HEIGHT)
+            rect = self.timeline_area.rect()
+            timeline_rect = QRect(0, TIMELINE_TOP_MARGIN, rect.width(), rect.height() - CHAINAGE_SCALE_HEIGHT)
             if timeline_rect.contains(event.position().toPoint()):
                 pixels_per_second = self.calculate_pixels_per_second(timeline_rect)
                 mouse_time = self.pixel_to_time(event.position().x(), pixels_per_second, timeline_rect.left())
                 self.new_event_end = mouse_time
-                self.update()  # Repaint to show updated marker
+                self.timeline_area.update()  # Repaint to show updated marker
                 
                 # Sync to nearest image
                 self.position_clicked.emit(mouse_time, (None, None))
@@ -834,8 +872,8 @@ class TimelineWidget(QWidget):
     def mouseDoubleClickEvent(self, event):
         """Handle double click to edit event or complete event creation"""
         if event.button() == Qt.MouseButton.LeftButton:
-            rect = self.rect()
-            timeline_rect = QRect(0, TIMELINE_TOP_MARGIN, rect.width(), rect.height() - CONTROLS_HEIGHT)
+            rect = self.timeline_area.rect()
+            timeline_rect = QRect(0, TIMELINE_TOP_MARGIN, rect.width(), rect.height() - CHAINAGE_SCALE_HEIGHT)
 
             if timeline_rect.contains(event.position().toPoint()):
                 pixels_per_second = self.calculate_pixels_per_second(timeline_rect)
@@ -871,18 +909,43 @@ class TimelineWidget(QWidget):
             }
             self.event_modified.emit(edited_event.event_id, changes)
             self.layer_cache_dirty = True
-            self.update()
+            self.timeline_area.update()
 
-    def handle_drag(self, event):
-        """Handle event dragging"""
-        rect = self.rect()
-        timeline_rect = QRect(0, TIMELINE_TOP_MARGIN, rect.width(), rect.height() - CONTROLS_HEIGHT)
+    def handle_drag_marker(self, event):
+        """Handle dragging current position marker"""
+        rect = self.timeline_area.rect()
+        timeline_rect = QRect(0, TIMELINE_TOP_MARGIN, rect.width(), rect.height() - CHAINAGE_SCALE_HEIGHT)
         pixels_per_second = self.calculate_pixels_per_second(timeline_rect)
 
         new_time = self.pixel_to_time(event.position().x(), pixels_per_second, timeline_rect.left())
 
-        # Apply snapping
-        new_time = self.snap_time_to_grid(new_time)
+        # Update current position
+        self.current_position = new_time
+        self.timeline_area.update()
+
+        # Emit position changed for realtime sync
+        self.position_clicked.emit(new_time, (None, None))
+
+    def handle_drag(self, event):
+        """Handle dragging events"""
+        rect = self.timeline_area.rect()
+        timeline_rect = QRect(0, TIMELINE_TOP_MARGIN, rect.width(), rect.height() - CHAINAGE_SCALE_HEIGHT)
+        pixels_per_second = self.calculate_pixels_per_second(timeline_rect)
+
+        new_time = self.pixel_to_time(event.position().x(), pixels_per_second, timeline_rect.left())
+
+        # Update event in realtime
+        if self.drag_handle == 'start':
+            self.selected_event.start_time = new_time
+        elif self.drag_handle == 'end':
+            self.selected_event.end_time = new_time
+        elif self.drag_handle == 'move':
+            duration = self.selected_event.end_time - self.selected_event.start_time
+            self.selected_event.start_time = new_time
+            self.selected_event.end_time = new_time + duration
+
+        self.layer_cache_dirty = True
+        self.timeline_area.update()
 
         # Update event
         changes = {}
@@ -901,7 +964,7 @@ class TimelineWidget(QWidget):
 
         self.event_modified.emit(self.selected_event.event_id, changes)
         self.layer_cache_dirty = True
-        self.update()
+        self.timeline_area.update()
 
         # Sync to nearest image
         self.position_clicked.emit(new_time, (None, None))
@@ -912,13 +975,17 @@ class TimelineWidget(QWidget):
             self.dragging = False
             self.selected_event = None
             self.drag_handle = None
+        if self.dragging_marker:
+            self.dragging_marker = False
+            # Reset cursor after dragging
+            self.update_cursor(event)
 
         super().mouseReleaseEvent(event)
 
     def update_cursor(self, event):
         """Update cursor based on position"""
-        rect = self.rect()
-        timeline_rect = QRect(0, TIMELINE_TOP_MARGIN, rect.width(), rect.height() - CONTROLS_HEIGHT)
+        rect = self.timeline_area.rect()
+        timeline_rect = QRect(0, TIMELINE_TOP_MARGIN, rect.width(), rect.height() - CHAINAGE_SCALE_HEIGHT)
 
         if not timeline_rect.contains(event.position().toPoint()):
             self.setCursor(Qt.CursorShape.ArrowCursor)
@@ -937,7 +1004,37 @@ class TimelineWidget(QWidget):
             else:
                 self.setCursor(Qt.CursorShape.OpenHandCursor)
         else:
-            self.setCursor(Qt.CursorShape.CrossCursor)
+            if self.is_click_on_current_position_marker(event.position().toPoint()):
+                self.setCursor(Qt.CursorShape.PointingHandCursor)
+            else:
+                self.setCursor(Qt.CursorShape.CrossCursor)
+
+    def is_click_on_current_position_marker(self, pos: QPoint) -> bool:
+        """Check if click position is on the current position marker arrow"""
+        if not self.current_position:
+            logging.debug("TimelineWidget: No current position")
+            return False
+
+        rect = self.timeline_area.rect()
+        timeline_rect = QRect(0, TIMELINE_TOP_MARGIN, rect.width(), rect.height() - CHAINAGE_SCALE_HEIGHT)
+        pixels_per_second = self.calculate_pixels_per_second(timeline_rect)
+
+        x = self.time_to_pixel(self.current_position, pixels_per_second, timeline_rect.left())
+        logging.debug(f"TimelineWidget: Marker x={x}, pos={pos}, rect={rect.left()}-{rect.right()}")
+        if not (rect.left() <= x <= rect.right()):
+            logging.debug("TimelineWidget: Marker not in view")
+            return False
+
+        # Arrow position
+        arrow_y = 0  # Match paint position
+        arrow_size = 50  # Match paint size
+
+        # Check if click is within the arrow bounding box only (not the entire line)
+        px, py = pos.x(), pos.y()
+        arrow_rect = QRect(int(x - arrow_size//2), arrow_y, arrow_size, arrow_size)
+        result = arrow_rect.contains(pos)
+        logging.debug(f"TimelineWidget: Arrow rect {arrow_rect}, click at ({px}, {py}), inside={result}")
+        return result
 
     def calculate_pixels_per_second(self, timeline_rect: QRect) -> float:
         """Calculate pixels per second for current view"""
