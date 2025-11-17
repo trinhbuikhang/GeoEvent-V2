@@ -866,6 +866,9 @@ class TimelineWidget(QWidget):
                 self.position_clicked.emit(mouse_time, (None, None))
         else:
             self.update_cursor(event)
+            
+            # Update tooltip for event hover
+            self.update_event_tooltip(event)
 
         super().mouseMoveEvent(event)
 
@@ -1008,6 +1011,39 @@ class TimelineWidget(QWidget):
                 self.setCursor(Qt.CursorShape.PointingHandCursor)
             else:
                 self.setCursor(Qt.CursorShape.CrossCursor)
+
+    def update_event_tooltip(self, event):
+        """Update tooltip for event under mouse"""
+        rect = self.timeline_area.rect()
+        timeline_rect = QRect(0, TIMELINE_TOP_MARGIN, rect.width(), rect.height() - CHAINAGE_SCALE_HEIGHT)
+        
+        if not timeline_rect.contains(event.position().toPoint()):
+            self.timeline_area.setToolTip("")
+            return
+
+        pixels_per_second = self.calculate_pixels_per_second(timeline_rect)
+        hovered_event = self.get_event_at_position(event.position().toPoint(), timeline_rect, pixels_per_second)
+
+        if hovered_event:
+            # Create tooltip with event information
+            tooltip_lines = []
+            tooltip_lines.append(f"<b>{hovered_event.event_name}</b>")
+            tooltip_lines.append(f"ID: {hovered_event.event_id}")
+            tooltip_lines.append(f"Start: {hovered_event.start_time.strftime('%H:%M:%S')}")
+            tooltip_lines.append(f"End: {hovered_event.end_time.strftime('%H:%M:%S')}")
+            tooltip_lines.append(f"Duration: {hovered_event.duration_seconds:.1f}s")
+            tooltip_lines.append(f"Chainage: {hovered_event.start_chainage:.1f}m - {hovered_event.end_chainage:.1f}m")
+            tooltip_lines.append(f"Length: {hovered_event.length_meters:.1f}m")
+            
+            if hovered_event.start_lat and hovered_event.start_lon:
+                tooltip_lines.append(f"Start GPS: {hovered_event.start_lat:.6f}, {hovered_event.start_lon:.6f}")
+            if hovered_event.end_lat and hovered_event.end_lon:
+                tooltip_lines.append(f"End GPS: {hovered_event.end_lat:.6f}, {hovered_event.end_lon:.6f}")
+            
+            tooltip = "<br>".join(tooltip_lines)
+            self.timeline_area.setToolTip(tooltip)
+        else:
+            self.timeline_area.setToolTip("")
 
     def is_click_on_current_position_marker(self, pos: QPoint) -> bool:
         """Check if click position is on the current position marker arrow"""
