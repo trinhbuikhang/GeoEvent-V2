@@ -4,9 +4,26 @@ test_gui.py
 test_mouse.py
 test_timeline.py
 test_timeline_times.py
+test_turn_selected_lane.py
+marker_test.py
 
 # Test data
 testdata/
+
+# Build outputs
+build/
+dist/
+*.spec
+*.exe
+
+# Build scripts and docs
+build.py
+build.bat
+BUILD_README.md
+requirements-build.txt
+
+# Icons and assets
+app/ui/icon/
 
 # Python cache
 __pycache__/
@@ -21,3 +38,8 @@ __pycache__/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
