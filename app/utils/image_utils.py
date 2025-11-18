@@ -52,10 +52,15 @@ def extract_image_metadata(image_path: str) -> Dict:
             metadata['latitude'] = coords[0]
             metadata['longitude'] = coords[1]
 
-        # Extract bearing
-        bearing_match = re.search(r'-(\d{3})-', filename)
+        # Extract bearing (number before --- after coordinates)
+        bearing_match = re.search(r'-([0-9]+(?:\.[0-9]+)?)---', filename)
         if bearing_match:
-            metadata['bearing'] = int(bearing_match.group(1))
+            try:
+                bearing = float(bearing_match.group(1))
+                if 0 <= bearing <= 360:  # Valid bearing range
+                    metadata['bearing'] = int(bearing)  # Store as integer
+            except ValueError:
+                pass
 
         # Extract speed
         speed_match = re.search(r'-(\d{1,3})-', filename)

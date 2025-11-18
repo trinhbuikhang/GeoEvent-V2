@@ -156,6 +156,8 @@ class PhotoPreviewTab(QWidget):
         self.folder_info_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         self.folder_info_label.setWordWrap(True)
         self.folder_info_label.setMinimumSize(150, 200)
+        # Allow text selection and copying
+        self.folder_info_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard)
         top_row_layout.addWidget(self.folder_info_label, stretch=1)
         
         right_layout.addLayout(top_row_layout)
