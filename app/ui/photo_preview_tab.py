@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
     QSlider, QFrame, QScrollArea, QGroupBox, QButtonGroup, QSplitter, QSizePolicy, QMessageBox, QComboBox, QDialog, QRadioButton, QDialogButtonBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
-from PyQt6.QtGui import QPixmap, QImage, QPainter, QPen, QBrush
+from PyQt6.QtGui import QPixmap, QImage, QPainter, QPen, QBrush, QShortcut, QKeySequence
 from PyQt6.QtCore import QPointF
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 
@@ -493,6 +493,23 @@ class PhotoPreviewTab(QWidget):
         self.timeline.event_deleted.connect(self.on_event_deleted)
         self.timeline.event_created.connect(self.on_event_created)
 
+        # Keyboard shortcuts for slideshow control
+        self.setup_keyboard_shortcuts()
+
+    def setup_keyboard_shortcuts(self):
+        """Setup keyboard shortcuts for slideshow control"""
+        # Space bar - Toggle play/pause slideshow
+        self.play_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Space), self)
+        self.play_shortcut.activated.connect(self.toggle_playback)
+
+        # Left arrow - Previous image
+        self.prev_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Left), self)
+        self.prev_shortcut.activated.connect(self.prev_image)
+
+        # Right arrow - Next image
+        self.next_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Right), self)
+        self.next_shortcut.activated.connect(self.next_image)
+
     def on_event_modified(self, event_id: str, changes: dict):
         """Handle event modification"""
         logging.info(f"PhotoPreviewTab: Applying changes to event {event_id}: {changes}")
@@ -641,7 +658,7 @@ class PhotoPreviewTab(QWidget):
             timestamp = self.current_metadata.get('timestamp')
             if timestamp is not None:
                 gps_coords = self.current_metadata.get('gps_coords', (None, None))
-                self.timeline.set_current_position(timestamp)
+                self.timeline.set_current_position(timestamp, update_view_range=False)
                 self.position_changed.emit(timestamp, gps_coords)
 
             # Update lane display based on current timestamp
