@@ -27,7 +27,12 @@ class SettingsManager:
         if os.path.exists(self.settings_file):
             try:
                 with open(self.settings_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    loaded = json.load(f)
+                    # Merge with defaults for new keys
+                    defaults = self._get_default_settings()
+                    merged = defaults.copy()
+                    merged.update(loaded)
+                    return merged
             except (json.JSONDecodeError, IOError, ValueError) as e:
                 print(f"Error loading settings: {e}. Using defaults.")
                 # Backup corrupted file
@@ -50,7 +55,18 @@ class SettingsManager:
             'autosave_interval': 300,  # 5 minutes
             'image_cache_size': 500,   # MB
             'timeline_zoom_default': 10,
-            'lane_assignment_mode': 'strict'  # 'strict' or 'permissive'
+            'lane_assignment_mode': 'strict',  # 'strict' or 'permissive'
+            'event_names': [
+                'Bridge',
+                'Pavers',
+                'Speed Hump',
+                'Detour',
+                'Road Works',
+                'Surface Contamination',
+                'Wet Surface',
+                'Unsealed Road',
+                'Cattle Grid'
+            ]
         }
 
     def save_settings(self, settings: Dict[str, Any] = None):

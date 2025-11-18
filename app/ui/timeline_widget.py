@@ -7,13 +7,14 @@ import time
 from typing import List, Optional
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QComboBox, QSlider, QMenu, QInputDialog, QMessageBox, QLineEdit
+    QComboBox, QSlider, QMenu, QInputDialog, QMessageBox, QLineEdit, QDialog
 )
 from PyQt6.QtCore import Qt, QRect, QPoint, pyqtSignal, QTimer, QMutex, QMutexLocker
 from PyQt6.QtGui import QPainter, QPen, QColor, QBrush, QFont, QAction
 
 from ..models.event_model import Event
 from ..models.gps_model import GPSData
+from .event_editor import EventEditor
 
 import logging
 
@@ -500,24 +501,36 @@ class TimelineWidget(QWidget):
         # Store coordinates for chainage calculation
         self.event_coords = coords
 
-        # Show name input dialog
-        event_name, ok = QInputDialog.getText(
-            self, "New Event", "Enter event name:",
-            QLineEdit.EchoMode.Normal, "New Event"
+        # Create a new event with default values
+        new_event = Event(
+            event_id="",  # Will be generated later
+            event_name="",  # Will be set by user
+            start_time=self.current_position,
+            end_time=self.current_position + timedelta(seconds=DEFAULT_EVENT_DURATION),
+            start_chainage=0.0,
+            end_chainage=0.0
         )
 
-        if ok and event_name.strip():
-            logging.info(f"TimelineWidget: Starting event creation for '{event_name}' at {self.current_position}")
-            self.creating_event = True
-            self.new_event_start = self.current_position
-            self.new_event_end = self.current_position  # Will be updated during drag
-            self.new_event_name = event_name.strip()
-            self.timeline_area.update()  # Repaint to show the marker
+        # Show event editor dialog
+        dialog = EventEditor(new_event, self)
+        dialog.setWindowTitle("Add New Event")
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            # User accepted the dialog
+            event_name = dialog.name_combo.currentText().strip()
+            if event_name:
+                logging.info(f"TimelineWidget: Starting event creation for '{event_name}' at {self.current_position}")
+                self.creating_event = True
+                self.new_event_start = self.current_position
+                self.new_event_end = self.current_position + timedelta(seconds=DEFAULT_EVENT_DURATION)  # Default duration
+                self.new_event_name = event_name
+                self.timeline_area.update()  # Repaint to show the marker
 
-            logging.info(
-                f"Event '{event_name}' started at current position.\n"
-                "Drag the marker on the timeline to set the end time, then double-click to finish."
-            )
+                logging.info(
+                    f"Event '{event_name}' started at current position.\n"
+                    "Drag the marker on the timeline to set the end time, then double-click to finish."
+                )
+            else:
+                QMessageBox.warning(self, "Invalid Event", "Event name cannot be empty.")
         else:
             logging.info("TimelineWidget: Event creation cancelled")
             # Reset state on cancel
@@ -819,8 +832,19 @@ class TimelineWidget(QWidget):
                 continue
 
             # Get lane color
-            color = QColor(self.lane_manager.get_lane_color(fix.lane))
-            painter.fillRect(int(visible_start), lane_bar_y, int(width), lane_bar_height, color)
+            if fix.ignore:
+                # Draw ignore periods with hatched pattern
+                color = QColor('#7F8C8D')  # Dark gray
+                painter.fillRect(int(visible_start), lane_bar_y, int(width), lane_bar_height, color)
+                
+                # Add hatched pattern to indicate ignored
+                painter.setPen(QPen(QColor('#B0B0B0'), 1, Qt.PenStyle.DotLine))
+                for y in range(lane_bar_y, lane_bar_y + lane_bar_height, 2):
+                    painter.drawLine(int(visible_start), y, int(visible_end), y)
+            else:
+                # Normal lane periods
+                color = QColor(self.lane_manager.get_lane_color(fix.lane))
+                painter.fillRect(int(visible_start), lane_bar_y, int(width), lane_bar_height, color)
 
     def paint_current_position(self, painter: QPainter, rect: QRect, pixels_per_second: float):
         """Paint current position marker"""

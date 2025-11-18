@@ -10,14 +10,16 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 
 from ..models.event_model import Event
+from ..utils.settings_manager import SettingsManager
 
 class EventEditor(QDialog):
     """
-    Dialog for editing event properties
+    Simple dialog for selecting/editing event name only
     """
 
     def __init__(self, event: Event = None, parent=None):
         super().__init__(parent)
+        self.settings_manager = SettingsManager()
         self.event = event or Event(
             event_id="",
             event_name="",
@@ -31,10 +33,10 @@ class EventEditor(QDialog):
         self.load_event_data()
 
     def setup_ui(self):
-        """Setup dialog UI"""
-        self.setWindowTitle("Edit Event")
+        """Setup simple UI with only event name"""
+        self.setWindowTitle("Add Event")
         self.setModal(True)
-        self.resize(400, 300)
+        self.resize(300, 100)
 
         layout = QVBoxLayout(self)
 
@@ -42,44 +44,17 @@ class EventEditor(QDialog):
         name_layout = QHBoxLayout()
         name_layout.addWidget(QLabel("Event Name:"))
         self.name_combo = QComboBox()
-        self.name_combo.addItems([
-            "Bridge", "Speed Hump", "Intersection",
-            "Road Works", "Roundabout", "Default"
-        ])
+        self.name_combo.setEditable(True)
+        event_names = self.settings_manager.get_setting('event_names', [])
+        self.name_combo.addItems(event_names)
         name_layout.addWidget(self.name_combo)
         layout.addLayout(name_layout)
-
-        # Start time
-        start_layout = QHBoxLayout()
-        start_layout.addWidget(QLabel("Start Time:"))
-        self.start_time_edit = QDateTimeEdit()
-        self.start_time_edit.setDisplayFormat("yyyy-MM-dd HH:mm:ss")
-        start_layout.addWidget(self.start_time_edit)
-        layout.addLayout(start_layout)
-
-        # End time
-        end_layout = QHBoxLayout()
-        end_layout.addWidget(QLabel("End Time:"))
-        self.end_time_edit = QDateTimeEdit()
-        self.end_time_edit.setDisplayFormat("yyyy-MM-dd HH:mm:ss")
-        end_layout.addWidget(self.end_time_edit)
-        layout.addLayout(end_layout)
-
-        # Chainage
-        chainage_layout = QHBoxLayout()
-        chainage_layout.addWidget(QLabel("Start Chainage:"))
-        self.start_chainage_edit = QLineEdit()
-        chainage_layout.addWidget(self.start_chainage_edit)
-        chainage_layout.addWidget(QLabel("End Chainage:"))
-        self.end_chainage_edit = QLineEdit()
-        chainage_layout.addWidget(self.end_chainage_edit)
-        layout.addLayout(chainage_layout)
 
         # Buttons
         button_layout = QHBoxLayout()
         button_layout.addStretch()
 
-        self.save_btn = QPushButton("Save")
+        self.save_btn = QPushButton("OK")
         self.save_btn.clicked.connect(self.accept)
         button_layout.addWidget(self.save_btn)
 
@@ -92,10 +67,10 @@ class EventEditor(QDialog):
     def load_event_data(self):
         """Load event data into form"""
         self.name_combo.setCurrentText(self.event.event_name)
-        self.start_time_edit.setDateTime(self.event.start_time)
-        self.end_time_edit.setDateTime(self.event.end_time)
-        self.start_chainage_edit.setText(f"{self.event.start_chainage:.1f}")
-        self.end_chainage_edit.setText(f"{self.event.end_chainage:.1f}")
+        
+        # If no event name is set, select the first item in the dropdown
+        if not self.event.event_name and self.name_combo.count() > 0:
+            self.name_combo.setCurrentIndex(0)
 
     def get_event_data(self) -> Event:
         """Get event data from form"""
@@ -112,6 +87,12 @@ class EventEditor(QDialog):
 
             if start_chainage >= end_chainage:
                 raise ValueError("Start chainage must be less than end chainage")
+
+            # Add new event name to settings if not exists
+            event_names = self.settings_manager.get_setting('event_names', [])
+            if event_name not in event_names:
+                event_names.append(event_name)
+                self.settings_manager.save_setting('event_names', event_names)
 
             # Update event
             self.event.event_name = event_name

@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import List, Optional
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QSlider, QFrame, QScrollArea, QGroupBox, QButtonGroup, QSplitter, QSizePolicy, QMessageBox
+    QSlider, QFrame, QScrollArea, QGroupBox, QButtonGroup, QSplitter, QSizePolicy, QMessageBox, QComboBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
 from PyQt6.QtGui import QPixmap, QImage, QPainter, QPen, QBrush
@@ -91,7 +91,6 @@ class PhotoPreviewTab(QWidget):
         # Minimap (left side of top row)
         self.minimap_view = QWebEngineView()
         self.minimap_view.setMinimumSize(150, 200)
-        #self.minimap_view.setMaximumSize(200, 250)
         top_row_layout.addWidget(self.minimap_view, stretch=1)
 
         # Folder information (right side of top row)
@@ -110,8 +109,8 @@ class PhotoPreviewTab(QWidget):
         lanecode_layout = QVBoxLayout()
         self.setup_lane_controls(lanecode_layout)
         lanecode_group.setLayout(lanecode_layout)
-        lanecode_group.setMinimumHeight(100)  # Reduced from 120 to 80 (2/3)
-        lanecode_group.setMaximumHeight(120)  # Reduced from 150 to 100 (2/3)
+        lanecode_group.setMinimumHeight(180)
+        lanecode_group.setMaximumHeight(220)
         right_layout.addWidget(lanecode_group, stretch=1)
 
         # FileID button control
@@ -124,21 +123,20 @@ class PhotoPreviewTab(QWidget):
         fileid_group.setMaximumHeight(80)
         right_layout.addWidget(fileid_group)
 
-        # No stretch at bottom - FileID control will align with bottom of photo canvas
         top_splitter.addWidget(right_widget)
 
         # Set splitter proportions (60% photo, 40% controls)
         top_splitter.setSizes([600, 400])
         main_layout.addWidget(top_splitter, stretch=7)
 
-        # Timeline and event marker display (no label, just timeline)
+        # Timeline and event marker display
         timeline_frame = QFrame()
         timeline_frame.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Plain)
         timeline_frame.setLineWidth(2)
         timeline_layout = QVBoxLayout(timeline_frame)
         timeline_layout.setContentsMargins(5, 5, 5, 5)
         
-        self.timeline = TimelineWidget()
+        self.timeline = TimelineWidget(photo_tab=self)
         timeline_layout.addWidget(self.timeline)
         
         main_layout.addWidget(timeline_frame, stretch=3)
@@ -157,7 +155,7 @@ class PhotoPreviewTab(QWidget):
 
         main_layout.addLayout(bottom_layout)
 
-        # Photo slider - no frame, direct slider
+        # Photo slider
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setMinimum(0)
         self.slider.setMaximum(0)
@@ -167,7 +165,6 @@ class PhotoPreviewTab(QWidget):
 
     def setup_image_display(self, parent_layout):
         """Setup image display area"""
-        # Scroll area for image
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setStyleSheet("border: 2px solid black;")
@@ -182,39 +179,35 @@ class PhotoPreviewTab(QWidget):
 
     def setup_navigation_buttons(self, parent_layout):
         """Setup navigation buttons"""
-        # Previous button
         self.prev_btn = QPushButton("◀ Previous")
         self.prev_btn.clicked.connect(self.prev_image)
         self.prev_btn.setMinimumHeight(40)
         parent_layout.addWidget(self.prev_btn)
 
-        # Play/Pause button
         self.play_btn = QPushButton("▶ Play")
         self.play_btn.clicked.connect(self.toggle_playback)
         self.play_btn.setMinimumHeight(40)
         parent_layout.addWidget(self.play_btn)
 
-        # Next button
         self.next_btn = QPushButton("Next ▶")
         self.next_btn.clicked.connect(self.next_image)
         self.next_btn.setMinimumHeight(40)
         parent_layout.addWidget(self.next_btn)
 
-        # Position label
         self.position_label = QLabel("0 / 0")
         self.position_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.position_label.setStyleSheet("font-weight: bold; font-size: 14px;")
         parent_layout.addWidget(self.position_label)
 
-        # Playback timer
         self.playback_timer = QTimer()
         self.playback_timer.timeout.connect(self.next_image)
         self.is_playing = False
 
     def setup_lane_controls(self, parent_layout):
-        """Setup lane controls"""
-        # Row 1: Lane buttons
+        """Setup lane controls with improved layout"""
+        # Row 1: Lane 1-4 buttons
         lane_row = QHBoxLayout()
+        lane_row.setSpacing(5)
         lane_codes = ['1', '2', '3', '4']
         lane_names = ['Lane 1', 'Lane 2', 'Lane 3', 'Lane 4']
 
@@ -226,44 +219,35 @@ class PhotoPreviewTab(QWidget):
                     background-color: #1976D2;
                     color: white;
                     border: 1px solid #0D47A1;
-                    padding: 5px;
+                    padding: 8px;
+                    font-weight: bold;
                 }
                 QPushButton:checked {
                     background-color: #4CAF50;
                     color: white;
                     border: 2px solid #388E3C;
                 }
+                QPushButton:hover {
+                    background-color: #1565C0;
+                }
+                QPushButton:checked:hover {
+                    background-color: #45a049;
+                }
             """)
             btn.clicked.connect(lambda checked, c=code: self.assign_lane(c))
-            btn.setMinimumHeight(30)
+            btn.setMinimumHeight(35)
+            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             self.lane_buttons.addButton(btn)
             lane_row.addWidget(btn)
 
         parent_layout.addLayout(lane_row)
 
-        # Row 2: Turn buttons and current lane
-        turn_row = QHBoxLayout()
+        # Row 2: TK, TM, SK, Ignore buttons
+        control_row = QHBoxLayout()
+        control_row.setSpacing(5)
         
-        self.turn_right_btn = QPushButton("TM ↱ (Turn Right)")
-        self.turn_right_btn.setCheckable(True)
-        self.turn_right_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #1976D2;
-                color: white;
-                border: 1px solid #0D47A1;
-                padding: 5px;
-            }
-            QPushButton:checked {
-                background-color: #FFF9C4;
-                color: black;
-                border: 2px solid #FBC02D;
-            }
-        """)
-        self.turn_right_btn.clicked.connect(lambda: self.start_turn('TM'))
-        self.turn_right_btn.setMinimumHeight(30)
-        turn_row.addWidget(self.turn_right_btn)
-
-        self.turn_left_btn = QPushButton("TK ↰ (Turn Left)")
+        # Turn Left button (TK)
+        self.turn_left_btn = QPushButton("TK\n↰")
         self.turn_left_btn.setCheckable(True)
         self.turn_left_btn.setStyleSheet("""
             QPushButton {
@@ -271,23 +255,115 @@ class PhotoPreviewTab(QWidget):
                 color: white;
                 border: 1px solid #0D47A1;
                 padding: 5px;
+                font-weight: bold;
             }
             QPushButton:checked {
                 background-color: #FFF9C4;
                 color: black;
                 border: 2px solid #FBC02D;
             }
+            QPushButton:hover {
+                background-color: #1565C0;
+            }
+            QPushButton:checked:hover {
+                background-color: #FFF59D;
+            }
         """)
         self.turn_left_btn.clicked.connect(lambda: self.start_turn('TK'))
-        self.turn_left_btn.setMinimumHeight(30)
-        turn_row.addWidget(self.turn_left_btn)
+        self.turn_left_btn.setMinimumHeight(35)
+        self.turn_left_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        control_row.addWidget(self.turn_left_btn)
 
+        # Turn Right button (TM)
+        self.turn_right_btn = QPushButton("TM\n↱")
+        self.turn_right_btn.setCheckable(True)
+        self.turn_right_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #1976D2;
+                color: white;
+                border: 1px solid #0D47A1;
+                padding: 5px;
+                font-weight: bold;
+            }
+            QPushButton:checked {
+                background-color: #FFF9C4;
+                color: black;
+                border: 2px solid #FBC02D;
+            }
+            QPushButton:hover {
+                background-color: #1565C0;
+            }
+            QPushButton:checked:hover {
+                background-color: #FFF59D;
+            }
+        """)
+        self.turn_right_btn.clicked.connect(lambda: self.start_turn('TM'))
+        self.turn_right_btn.setMinimumHeight(35)
+        self.turn_right_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        control_row.addWidget(self.turn_right_btn)
+
+        # SK button (Shoulder)
+        self.sk_btn = QPushButton("SK")
+        self.sk_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #FF9800;
+                color: white;
+                border: 1px solid #E65100;
+                padding: 5px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #FB8C00;
+            }
+            QPushButton:pressed {
+                background-color: #E65100;
+            }
+        """)
+        self.sk_btn.clicked.connect(self.assign_sk)
+        self.sk_btn.setMinimumHeight(35)
+        self.sk_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        control_row.addWidget(self.sk_btn)
+
+        # Ignore button
+        self.ignore_btn = QPushButton("Ignore")
+        self.ignore_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #F44336;
+                color: white;
+                border: 1px solid #B71C1C;
+                padding: 5px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #E53935;
+            }
+            QPushButton:pressed {
+                background-color: #B71C1C;
+            }
+        """)
+        self.ignore_btn.clicked.connect(self.assign_ignore)
+        self.ignore_btn.setMinimumHeight(35)
+        self.ignore_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        control_row.addWidget(self.ignore_btn)
+
+        parent_layout.addLayout(control_row)
+
+        # Row 3: Current lane label
         self.current_lane_label = QLabel("Current: None")
-        self.current_lane_label.setStyleSheet("font-weight: bold; padding: 5px;")
+        self.current_lane_label.setStyleSheet("""
+            QLabel {
+                font-weight: bold;
+                font-size: 12px;
+                padding: 4px;
+                background-color: #34495E;
+                color: white;
+                border: 1px solid #2C3E50;
+                border-radius: 3px;
+            }
+        """)
         self.current_lane_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        turn_row.addWidget(self.current_lane_label)
-
-        parent_layout.addLayout(turn_row)
+        self.current_lane_label.setMaximumHeight(50)
+        parent_layout.addWidget(self.current_lane_label)
 
     def setup_fileid_controls(self, parent_layout):
         """Setup FileID navigation controls"""
@@ -296,65 +372,19 @@ class PhotoPreviewTab(QWidget):
         self.prev_fileid_btn.setMinimumHeight(40)
         parent_layout.addWidget(self.prev_fileid_btn)
 
+        # FileID selector dropdown
+        self.fileid_combo = QComboBox()
+        self.fileid_combo.setMinimumHeight(40)
+        self.fileid_combo.setMinimumWidth(200)
+        self.fileid_combo.currentTextChanged.connect(self.on_fileid_selected)
+        parent_layout.addWidget(self.fileid_combo)
+
         parent_layout.addStretch()
 
         self.next_fileid_btn = QPushButton("Next FileID ▶")
         self.next_fileid_btn.clicked.connect(self.main_window.next_fileid)
         self.next_fileid_btn.setMinimumHeight(40)
         parent_layout.addWidget(self.next_fileid_btn)
-
-    def update_minimap(self, lat: float, lon: float):
-        """Update minimap with GPS position"""
-        if lat is None or lon is None:
-            self.minimap_label.setText("minimap\n(No GPS data)")
-            self.minimap_label.setPixmap(QPixmap())
-            return
-
-        # Create a QImage for minimap
-        width, height = self.minimap_label.width() - 10, self.minimap_label.height() - 10
-        if width <= 0 or height <= 0:
-            width, height = 190, 140
-            
-        image = QImage(width, height, QImage.Format.Format_RGB32)
-        image.fill(Qt.GlobalColor.white)
-
-        painter = QPainter(image)
-        painter.setPen(QPen(Qt.GlobalColor.black, 1))
-        painter.setBrush(QBrush(Qt.GlobalColor.lightGray))
-
-        # Draw a simple map (rectangle)
-        map_margin = 10
-        painter.drawRect(map_margin, map_margin, width - 2*map_margin, height - 2*map_margin)
-
-        # Draw grid
-        painter.setPen(QPen(Qt.GlobalColor.gray, 1))
-        grid_cols = 4
-        grid_rows = 4
-        for i in range(1, grid_cols):
-            x = map_margin + i * (width - 2*map_margin) / grid_cols
-            painter.drawLine(int(x), map_margin, int(x), height - map_margin)
-        for i in range(1, grid_rows):
-            y = map_margin + i * (height - 2*map_margin) / grid_rows
-            painter.drawLine(map_margin, int(y), width - map_margin, int(y))
-
-        # Scale coordinates to map
-        x = int(map_margin + (width - 2*map_margin) * ((lon + 180) / 360))
-        y = int(map_margin + (height - 2*map_margin) * ((90 - lat) / 180))
-
-        # Draw position point
-        painter.setPen(QPen(Qt.GlobalColor.red, 3))
-        painter.setBrush(QBrush(Qt.GlobalColor.red))
-        painter.drawEllipse(QPointF(x, y), 5, 5)
-
-        # Draw cross
-        painter.drawLine(x - 7, y, x + 7, y)
-        painter.drawLine(x, y - 7, x, y + 7)
-
-        painter.end()
-
-        # Convert to QPixmap
-        pixmap = QPixmap.fromImage(image)
-        self.minimap_label.setPixmap(pixmap)
 
     def connect_signals(self):
         """Connect signal handlers"""
@@ -371,26 +401,33 @@ class PhotoPreviewTab(QWidget):
                 for key, value in changes.items():
                     setattr(event, key, value)
                 break
-        self.events_modified = True  # Mark events as modified
-        # Update timeline display
-        self.timeline.update()
+        self.events_modified = True
+        # Use timeline_area.update() instead of timeline.update()
+        if hasattr(self.timeline, 'timeline_area'):
+            self.timeline.timeline_area.update()
 
     def on_event_deleted(self, event_id: str):
         """Handle event deletion"""
         logging.info(f"PhotoPreviewTab: Deleting event {event_id}")
         self.events = [event for event in self.events if event.event_id != event_id]
-        self.events_modified = True  # Mark events as modified
+        self.events_modified = True
         logging.info(f"PhotoPreviewTab: {len(self.events)} events remaining after deletion")
         # Update timeline display without changing view range
         self.timeline.set_events(self.events, update_view_range=False)
+        # Force update timeline area
+        if hasattr(self.timeline, 'timeline_area'):
+            self.timeline.timeline_area.update()
 
     def on_event_created(self, event):
         """Handle event creation"""
         logging.info(f"PhotoPreviewTab: Adding new event {event.event_id}")
         self.events.append(event)
-        self.events_modified = True  # Mark events as modified
+        self.events_modified = True
         # Update timeline display
         self.timeline.set_events(self.events, update_view_range=False)
+        # Force update timeline area
+        if hasattr(self.timeline, 'timeline_area'):
+            self.timeline.timeline_area.update()
 
     def load_fileid(self, fileid_folder):
         """Load data for a specific FileID"""
@@ -408,7 +445,7 @@ class PhotoPreviewTab(QWidget):
             self.gps_data = data['gps_data']
             self.image_paths = data['image_paths']
             self.fileid_metadata = data['metadata']
-            self.lane_manager = data['lane_manager']  # Use the lane manager from data loader
+            self.lane_manager = data['lane_manager']
             
             logging.info(f"PhotoPreviewTab: Stored {len(self.events)} events, {len(self.image_paths)} images")
 
@@ -446,7 +483,8 @@ class PhotoPreviewTab(QWidget):
                 logging.warning("PhotoPreviewTab: No images found in FileID")
             
             logging.info(f"PhotoPreviewTab: Successfully loaded FileID {fileid_folder.fileid}")
-            self.main_window.update_fileid_navigation()
+            if hasattr(self.main_window, 'update_fileid_navigation'):
+                self.main_window.update_fileid_navigation()
 
             # Reset lane button states when switching FileID
             for button in self.lane_buttons.buttons():
@@ -467,11 +505,10 @@ class PhotoPreviewTab(QWidget):
             info_text += f"<b>Path:</b> {metadata['path']}<br>"
             info_text += f"<b>Images:</b> {metadata['image_count']}<br>"
 
-            # Add timestamp info if available
-            if metadata['first_image_timestamp']:
+            if metadata.get('first_image_timestamp'):
                 first_time = metadata['first_image_timestamp'].strftime('%Y-%m-%d %H:%M:%S')
                 info_text += f"<b>First:</b> {first_time}<br>"
-            if metadata['last_image_timestamp']:
+            if metadata.get('last_image_timestamp'):
                 last_time = metadata['last_image_timestamp'].strftime('%Y-%m-%d %H:%M:%S')
                 info_text += f"<b>Last:</b> {last_time}"
 
@@ -494,6 +531,10 @@ class PhotoPreviewTab(QWidget):
                 gps_coords = self.current_metadata.get('gps_coords', (None, None))
                 self.timeline.set_current_position(timestamp)
                 self.position_changed.emit(timestamp, gps_coords)
+
+            # Update lane display based on current timestamp
+            if self.lane_manager and timestamp:
+                self.update_lane_display()
 
     def load_current_image(self):
         """Load and display current image"""
@@ -612,8 +653,6 @@ class PhotoPreviewTab(QWidget):
         # Update minimap
         self.update_minimap(lat, lon, bearing)
 
-        # No extra info label to update anymore
-
     def update_navigation_state(self):
         """Update navigation buttons and labels"""
         total = len(self.image_paths)
@@ -632,6 +671,10 @@ class PhotoPreviewTab(QWidget):
         """Navigate to next image"""
         if self.current_index < len(self.image_paths) - 1:
             self.navigate_to_image(self.current_index + 1)
+        else:
+            # Stop playback if at end
+            if self.is_playing:
+                self.toggle_playback()
 
     def slider_changed(self, value):
         """Handle slider value change"""
@@ -645,7 +688,7 @@ class PhotoPreviewTab(QWidget):
             self.play_btn.setText("▶ Play")
             self.is_playing = False
         else:
-            self.playback_timer.start(1000)  # 1 second intervals
+            self.playback_timer.start(1000)
             self.play_btn.setText("⏸ Pause")
             self.is_playing = True
 
@@ -656,37 +699,132 @@ class PhotoPreviewTab(QWidget):
             logging.warning("PhotoPreviewTab: assign_lane failed - no current metadata")
             return
 
+        if not self.lane_manager:
+            logging.warning("PhotoPreviewTab: assign_lane failed - no lane_manager")
+            return
+
         timestamp = self.current_metadata['timestamp']
-        plate = self.current_metadata.get('plate', '')
-        file_id = getattr(self, 'current_fileid', '')
 
         success = self.lane_manager.assign_lane(lane_code, timestamp)
         logging.info(f"PhotoPreviewTab: lane_manager.assign_lane returned success={success}")
 
         if success:
             self.update_lane_display()
+            # Update timeline to show lane changes
+            if hasattr(self.timeline, 'timeline_area'):
+                self.timeline.timeline_area.update()
             # Reset turn buttons if turn was ended by lane assignment
             if not self.lane_manager.turn_active:
                 self.turn_right_btn.setChecked(False)
                 self.turn_left_btn.setChecked(False)
         else:
             logging.warning("PhotoPreviewTab: assign_lane failed - overlap detected")
+            QMessageBox.warning(
+                self, "Lane Assignment Failed",
+                f"Cannot assign Lane {lane_code} at this time.\n\n"
+                f"Reason: Overlapping with existing lane assignment.\n\n"
+                f"Time: {timestamp.strftime('%H:%M:%S')}\n"
+                f"Plate: {self.current_metadata.get('plate', 'Unknown')}"
+            )
+
+    def assign_sk(self):
+        """Assign shoulder lane (SK) at current position"""
+        logging.info("PhotoPreviewTab: assign_sk called")
+        if not self.current_metadata or 'timestamp' not in self.current_metadata:
+            logging.warning("PhotoPreviewTab: assign_sk failed - no current metadata")
+            return
+
+        if not self.lane_manager:
+            logging.warning("PhotoPreviewTab: assign_sk failed - no lane_manager")
+            return
+
+        timestamp = self.current_metadata['timestamp']
+
+        success = self.lane_manager.assign_sk(timestamp)
+        logging.info(f"PhotoPreviewTab: lane_manager.assign_sk returned success={success}")
+
+        if success:
+            self.update_lane_display()
+            # Update timeline to show lane changes
+            if hasattr(self.timeline, 'timeline_area'):
+                self.timeline.timeline_area.update()
+            # Reset turn buttons if turn was ended by SK assignment
+            if not self.lane_manager.turn_active:
+                self.turn_right_btn.setChecked(False)
+                self.turn_left_btn.setChecked(False)
+        else:
+            logging.warning("PhotoPreviewTab: assign_sk failed - overlap detected")
+            QMessageBox.warning(
+                self, "Shoulder Lane Assignment Failed",
+                f"Cannot assign Shoulder Lane at this time.\n\n"
+                f"Reason: Overlapping with existing lane assignment.\n\n"
+                f"Time: {timestamp.strftime('%H:%M:%S')}\n"
+                f"Plate: {self.current_metadata.get('plate', 'Unknown')}"
+            )
+
+    def assign_ignore(self):
+        """Assign ignore period at current position"""
+        logging.info("PhotoPreviewTab: assign_ignore called")
+        if not self.current_metadata or 'timestamp' not in self.current_metadata:
+            logging.warning("PhotoPreviewTab: assign_ignore failed - no current metadata")
+            return
+
+        if not self.lane_manager:
+            logging.warning("PhotoPreviewTab: assign_ignore failed - no lane_manager")
+            return
+
+        timestamp = self.current_metadata['timestamp']
+
+        success = self.lane_manager.assign_ignore(timestamp)
+        logging.info(f"PhotoPreviewTab: lane_manager.assign_ignore returned success={success}")
+
+        if success:
+            self.update_lane_display()
+            # Update timeline to show lane changes
+            if hasattr(self.timeline, 'timeline_area'):
+                self.timeline.timeline_area.update()
+            # Reset turn buttons if turn was ended by ignore assignment
+            if not self.lane_manager.turn_active:
+                self.turn_right_btn.setChecked(False)
+                self.turn_left_btn.setChecked(False)
+        else:
+            logging.warning("PhotoPreviewTab: assign_ignore failed - overlap detected")
+            QMessageBox.warning(
+                self, "Ignore Assignment Failed",
+                f"Cannot assign Ignore period at this time.\n\n"
+                f"Reason: Overlapping with existing lane assignment.\n\n"
+                f"Time: {timestamp.strftime('%H:%M:%S')}\n"
+                f"Plate: {self.current_metadata.get('plate', 'Unknown')}"
+            )
 
     def start_turn(self, turn_type: str):
         """Start turn period or end if already active"""
         logging.info(f"PhotoPreviewTab: start_turn called with turn_type='{turn_type}'")
         if not self.current_metadata or 'timestamp' not in self.current_metadata:
             logging.warning("PhotoPreviewTab: start_turn failed - no current metadata")
+            QMessageBox.warning(
+                self, "Turn Start Failed",
+                f"Cannot start turn period.\n\n"
+                f"Reason: No current image metadata available.\n\n"
+                f"Please ensure an image is selected."
+            )
+            return
+
+        if not self.lane_manager:
+            logging.warning("PhotoPreviewTab: start_turn failed - no lane_manager")
+            QMessageBox.warning(
+                self, "Turn Start Failed",
+                f"Cannot start turn period.\n\n"
+                f"Reason: Lane manager not initialized.\n\n"
+                f"Please load a FileID first."
+            )
             return
 
         timestamp = self.current_metadata['timestamp']
-        plate = self.current_metadata.get('plate', '')
-        file_id = getattr(self, 'current_fileid', '')
 
         # If turn is already active with same type, end it
         current_turn_type = None
         if self.lane_manager.turn_active and self.lane_manager.current_lane:
-            # Extract turn type from current lane (TK1 -> TK, TM2 -> TM)
             if len(self.lane_manager.current_lane) >= 2 and self.lane_manager.current_lane[:2] in ['TK', 'TM']:
                 current_turn_type = self.lane_manager.current_lane[:2]
         
@@ -694,6 +832,9 @@ class PhotoPreviewTab(QWidget):
             logging.info(f"PhotoPreviewTab: Ending active {turn_type} turn")
             self.lane_manager.end_turn(timestamp)
             self.update_lane_display()
+            # Update timeline to show lane changes
+            if hasattr(self.timeline, 'timeline_area'):
+                self.timeline.timeline_area.update()
             # Reset turn button
             if turn_type == 'TM':
                 self.turn_right_btn.setChecked(False)
@@ -724,20 +865,92 @@ class PhotoPreviewTab(QWidget):
                 selected_lane = current
                 logging.info(f"PhotoPreviewTab: No button selected, using current_lane='{selected_lane}'")
 
+        # Validate that we have a lane selected for turn
+        if not selected_lane:
+            logging.warning("PhotoPreviewTab: start_turn failed - no lane selected for turn")
+            QMessageBox.warning(
+                self, "Turn Start Failed",
+                f"Cannot start {turn_type} turn period.\n\n"
+                f"Reason: No lane selected.\n\n"
+                f"Please select a lane (1-4) before starting a turn.\n\n"
+                f"Time: {timestamp.strftime('%H:%M:%S')}\n"
+                f"Plate: {self.current_metadata.get('plate', 'Unknown')}"
+            )
+            return
+
         logging.info(f"PhotoPreviewTab: Final selected_lane='{selected_lane}', calling lane_manager.start_turn")
         self.lane_manager.start_turn(turn_type, timestamp, selected_lane)
         self.update_lane_display()
+        # Update timeline to show lane changes
+        if hasattr(self.timeline, 'timeline_area'):
+            self.timeline.timeline_area.update()
         # Set turn button checked
         if turn_type == 'TM':
             self.turn_right_btn.setChecked(True)
+            self.turn_left_btn.setChecked(False)
         elif turn_type == 'TK':
             self.turn_left_btn.setChecked(True)
+            self.turn_right_btn.setChecked(False)
 
     def update_lane_display(self):
-        """Update current lane display"""
+        """Update current lane display based on current timestamp"""
+        if not self.lane_manager:
+            self.current_lane_label.setText("Current: None")
+            # Reset all lane buttons
+            for button in self.lane_buttons.buttons():
+                button.setChecked(False)
+            self.turn_right_btn.setChecked(False)
+            self.turn_left_btn.setChecked(False)
+            return
+
         current_lane = self.lane_manager.current_lane or "None"
+        
+        # If we have a current timestamp, get the lane at that timestamp
+        if self.current_metadata and 'timestamp' in self.current_metadata:
+            timestamp = self.current_metadata['timestamp']
+            lane_at_time = self.lane_manager.get_lane_at_timestamp(timestamp)
+            if lane_at_time:
+                current_lane = lane_at_time
+        
         self.current_lane_label.setText(f"Current: {current_lane}")
         logging.info(f"PhotoPreviewTab: update_lane_display - current_lane='{current_lane}'")
+
+        # Update button states to match lane_manager state
+        self._update_button_states(current_lane)
+
+    def _update_button_states(self, current_lane: str):
+        """Update UI button states to match the current lane state"""
+        # Reset all lane buttons first
+        for button in self.lane_buttons.buttons():
+            button.setChecked(False)
+        
+        # Reset turn buttons
+        self.turn_right_btn.setChecked(False)
+        self.turn_left_btn.setChecked(False)
+
+        # Set appropriate button based on current_lane
+        if current_lane and current_lane != "None":
+            # Check for regular lanes (1-4)
+            if current_lane in ['1', '2', '3', '4']:
+                for button in self.lane_buttons.buttons():
+                    button_text = button.text()
+                    if button_text == f'Lane {current_lane}':
+                        button.setChecked(True)
+                        break
+            # Check for turn lanes (TK1, TM2, etc.)
+            elif len(current_lane) >= 2 and current_lane[:2] in ['TK', 'TM']:
+                turn_type = current_lane[:2]
+                if turn_type == 'TM':
+                    self.turn_right_btn.setChecked(True)
+                elif turn_type == 'TK':
+                    self.turn_left_btn.setChecked(True)
+                # Also check the lane button if there's a lane number
+                if len(current_lane) >= 3 and current_lane[2] in ['1', '2', '3', '4']:
+                    lane_num = current_lane[2]
+                    for button in self.lane_buttons.buttons():
+                        if button.text() == f'Lane {lane_num}':
+                            button.setChecked(True)
+                            break
 
     def sync_to_timeline_position(self, timestamp: datetime, gps_coords: tuple):
         """Sync to timeline position - find closest image"""
@@ -782,44 +995,96 @@ class PhotoPreviewTab(QWidget):
     def save_all_events_internal(self):
         """Save all current events to the .driveevt file with backup, return success"""
         if hasattr(self, 'current_fileid') and self.current_fileid:
-            success = self.data_loader.save_events(self.events, self.current_fileid)
-            if success:
-                logging.info(f"PhotoPreviewTab: Successfully saved {len(self.events)} events")
-                self.events_modified = False  # Reset change flag after successful save
-            else:
-                logging.error("PhotoPreviewTab: Failed to save events")
-            return success
+            try:
+                success = self.data_loader.save_events(self.events, self.current_fileid)
+                if success:
+                    logging.info(f"PhotoPreviewTab: Successfully saved {len(self.events)} events")
+                    self.events_modified = False  # Reset change flag after successful save
+                else:
+                    logging.error("PhotoPreviewTab: Failed to save events")
+                return success
+            except PermissionError as e:
+                logging.error(f"PhotoPreviewTab: Permission denied saving events: {e}")
+                QMessageBox.critical(self, "Permission Error", f"Cannot save events due to permission error:\n\n{str(e)}\n\nPlease check file permissions and try again.")
+                return False
+            except OSError as e:
+                logging.error(f"PhotoPreviewTab: File system error saving events: {e}")
+                QMessageBox.critical(self, "File System Error", f"File system error while saving events:\n\n{str(e)}\n\nPlease check disk space and file system integrity.")
+                return False
+            except Exception as e:
+                logging.error(f"PhotoPreviewTab: Unexpected error saving events: {e}")
+                QMessageBox.critical(self, "Unexpected Error", f"An unexpected error occurred while saving events:\n\n{str(e)}")
+                return False
         else:
             logging.warning("PhotoPreviewTab: No current FileID to save events to")
             return False
 
     def save_lane_codes(self):
         """Save lane codes to CSV file"""
-        if hasattr(self, 'current_fileid') and self.current_fileid:
-            # Create output path for lane fixes CSV
-            output_path = os.path.join(self.current_fileid.path, f"{self.current_fileid.fileid}_lane_fixes.csv")
-            success = self.export_manager.export_lane_fixes(self.lane_manager.lane_fixes, output_path)
-            if success:
-                logging.info(f"PhotoPreviewTab: Successfully saved {len(self.lane_manager.lane_fixes)} lane fixes to {output_path}")
-                QMessageBox.information(self, "Success", f"Saved {len(self.lane_manager.lane_fixes)} lane fixes to:\n{output_path}")
-            else:
-                logging.error("PhotoPreviewTab: Failed to save lane fixes")
-                QMessageBox.warning(self, "Error", "Failed to save lane fixes")
+        if hasattr(self, 'current_fileid') and self.current_fileid and self.lane_manager:
+            try:
+                # Create output path for lane fixes CSV
+                output_path = os.path.join(self.current_fileid.path, f"{self.current_fileid.fileid}_lane_fixes.csv")
+                success = self.export_manager.export_lane_fixes(self.lane_manager.lane_fixes, output_path)
+                if success:
+                    logging.info(f"PhotoPreviewTab: Successfully saved {len(self.lane_manager.lane_fixes)} lane fixes to {output_path}")
+                    QMessageBox.information(self, "Success", f"Saved {len(self.lane_manager.lane_fixes)} lane fixes to:\n{output_path}")
+                else:
+                    logging.error("PhotoPreviewTab: Failed to save lane fixes")
+                    QMessageBox.warning(self, "Error", "Failed to save lane fixes")
+            except PermissionError as e:
+                logging.error(f"PhotoPreviewTab: Permission denied saving lane fixes: {e}")
+                QMessageBox.critical(self, "Permission Error", f"Cannot save lane fixes due to permission error:\n\n{str(e)}\n\nPlease check file permissions and try again.")
+            except OSError as e:
+                logging.error(f"PhotoPreviewTab: File system error saving lane fixes: {e}")
+                QMessageBox.critical(self, "File System Error", f"File system error while saving lane fixes:\n\n{str(e)}\n\nPlease check disk space and file system integrity.")
+            except Exception as e:
+                logging.error(f"PhotoPreviewTab: Unexpected error saving lane fixes: {e}")
+                QMessageBox.critical(self, "Unexpected Error", f"An unexpected error occurred while saving lane fixes:\n\n{str(e)}")
         else:
-            logging.warning("PhotoPreviewTab: No current FileID to save lane fixes to")
+            logging.warning("PhotoPreviewTab: No current FileID or lane_manager to save lane fixes")
             QMessageBox.warning(self, "Warning", "No current FileID to save lane fixes to")
+
+    def on_fileid_selected(self, fileid: str):
+        """Handle FileID selection from dropdown"""
+        logging.info(f"PhotoPreviewTab: on_fileid_selected called with fileid='{fileid}'")
+        if not fileid or not hasattr(self.main_window, 'fileid_manager'):
+            logging.warning("PhotoPreviewTab: on_fileid_selected - no fileid or fileid_manager")
+            return
+        
+        # Check if this is already the current FileID
+        current = self.main_window.fileid_manager.get_current_fileid()
+        if current and current.fileid == fileid:
+            logging.info(f"PhotoPreviewTab: on_fileid_selected - already current fileid {fileid}")
+            return
+        
+        logging.info(f"PhotoPreviewTab: on_fileid_selected - switching to {fileid}")
+        # Find the FileID folder
+        for fileid_folder in self.main_window.fileid_manager.fileid_list:
+            if fileid_folder.fileid == fileid:
+                # Auto-save current data before switching
+                self.main_window.auto_save_current_data()
+                
+                # Load the selected FileID
+                self.main_window.load_fileid(fileid_folder)
+                break
 
     def update_minimap(self, lat: float, lon: float, bearing: float = 0):
         """Update minimap with GPS position and bearing using Leaflet"""
-        if lat is None or lon is None:
+        if lat is None or lon is None or lat == '--' or lon == '--':
             # Show empty map centered on default location
             lat, lon, bearing = -6.2, 106.816666, 0  # Default to Jakarta
 
         # Ensure bearing is a number
-        if bearing is None:
+        if bearing is None or bearing == '--':
+            bearing = 0
+        
+        try:
+            bearing = float(bearing)
+        except (ValueError, TypeError):
             bearing = 0
 
-        # Normalize bearing to 0-360 range (REMOVED the +180 adjustment)
+        # Normalize bearing to 0-360 range
         bearing = bearing % 360
 
         # Create HTML content for Leaflet map

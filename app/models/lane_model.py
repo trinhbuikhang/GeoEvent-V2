@@ -3,7 +3,7 @@ Lane assignment data model for GeoEvent application
 """
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 from pathlib import Path
 import csv
@@ -18,8 +18,9 @@ class LaneFix:
     plate: str
     from_time: datetime
     to_time: datetime
-    lane: str  # '1'|'2'|'3'|'4'|'-1'|'TK1'|'TM2'...
+    lane: str  # '1'|'2'|'3'|'4'|'-1'|'TK1'|'TM2'|'SK1'|'SK2'|...
     file_id: str
+    ignore: bool = False  # Whether this period should be ignored
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization"""
@@ -28,7 +29,8 @@ class LaneFix:
             'from_time': self.from_time.isoformat(),
             'to_time': self.to_time.isoformat(),
             'lane': self.lane,
-            'file_id': self.file_id
+            'file_id': self.file_id,
+            'ignore': self.ignore
         }
 
     @classmethod
@@ -39,7 +41,8 @@ class LaneFix:
             from_time=datetime.fromisoformat(data['from_time']),
             to_time=datetime.fromisoformat(data['to_time']),
             lane=data['lane'],
-            file_id=data['file_id']
+            file_id=data['file_id'],
+            ignore=data.get('ignore', False)
         )
 
 class LaneManager:
@@ -66,8 +69,8 @@ class LaneManager:
             logging.warning("No plate or fileid_folder set for lane assignment")
             return False
 
-        # Check for overlaps
-        if self.check_overlap(timestamp):
+        # Check for overlaps (exclude ignore and special periods)
+        if self.check_overlap(timestamp, exclude_ignore=True, exclude_special=True):
             return False
 
         # End any active turn when assigning a new lane
@@ -169,6 +172,98 @@ class LaneManager:
 
         self.has_changes = True
 
+    def assign_sk(self, timestamp: datetime) -> bool:
+        """
+        Assign shoulder lane (SK) at given timestamp
+        Uses the previous lane number (SK1, SK2, etc.)
+        Returns True if successful, False if overlap detected
+        """
+        if not self.plate or not self.fileid_folder:
+            logging.warning("No plate or fileid_folder set for SK assignment")
+            return False
+
+        # End any active turn when assigning SK
+        if self.turn_active:
+            self.end_turn(timestamp)
+        # End current period if exists (before checking overlap)
+        if self.current_lane and self.lane_fixes:
+            # End 1 microsecond before timestamp to avoid overlap
+            end_time = timestamp - timedelta(microseconds=1)
+            self.lane_fixes[-1].to_time = end_time
+
+        # Check for overlaps after ending current period (exclude ignore periods only)
+        if self.check_overlap(timestamp, exclude_ignore=True):
+            return False
+
+        # Get previous lane number
+        sk_lane = "SK"
+        if self.current_lane and self.current_lane in ['1', '2', '3', '4']:
+            sk_lane = f"SK{self.current_lane}"
+
+        # Start new SK period
+        lane_fix = LaneFix(
+            plate=self.plate,
+            from_time=timestamp,
+            to_time=timestamp,  # Will be extended later
+            lane=sk_lane,
+            file_id=self.fileid_folder.name,
+            ignore=False
+        )
+        self.lane_fixes.append(lane_fix)
+        self.current_lane = sk_lane
+
+        # If this is the last lane assignment and we have end_time, extend to end
+        if self.end_time and not self._has_lane_after(timestamp):
+            lane_fix.to_time = self.end_time
+            logging.info(f"Extended SK lane {sk_lane} to folder end time: {self.end_time}")
+
+        self.has_changes = True
+        return True
+
+    def assign_ignore(self, timestamp: datetime) -> bool:
+        """
+        Assign ignore period at given timestamp
+        Returns True if successful, False if overlap detected
+        """
+        if not self.plate or not self.fileid_folder:
+            logging.warning("No plate or fileid_folder set for ignore assignment")
+            return False
+
+        # End any active turn when assigning ignore
+        if self.turn_active:
+            self.end_turn(timestamp)
+
+        # End current period if exists (before checking overlap)
+        if self.current_lane and self.lane_fixes:
+            # End 1 microsecond before timestamp to avoid overlap
+            end_time = timestamp - timedelta(microseconds=1)
+            self.lane_fixes[-1].to_time = end_time
+
+        # Check for overlaps after ending current period (exclude ignore periods only)
+        if self.check_overlap(timestamp, exclude_ignore=True):
+            return False
+
+        # Start new ignore period
+        lane_fix = LaneFix(
+            plate=self.plate,
+            from_time=timestamp,
+            to_time=timestamp,  # Will be extended later
+            lane="",  # Empty lane for ignore entries
+            file_id=self.fileid_folder.name,
+            ignore=True
+        )
+        self.lane_fixes.append(lane_fix)
+        # Don't change current_lane for ignore - keep previous lane
+        # self.current_lane = "IGNORE"
+
+        # If this is the last lane assignment and we have end_time, extend to end
+        if self.end_time and not self._has_lane_after(timestamp):
+            lane_fix.to_time = self.end_time
+            logging.info(f"Extended ignore period to folder end time: {self.end_time}")
+
+        self.has_changes = True
+        return True
+
     def _has_lane_after(self, timestamp: datetime) -> bool:
         """Check if there are any lane assignments after the given timestamp"""
         for fix in self.lane_fixes:
@@ -176,12 +271,20 @@ class LaneManager:
                 return True
         return False
 
-    def check_overlap(self, timestamp: datetime) -> bool:
+    def check_overlap(self, timestamp: datetime, exclude_ignore: bool = False, exclude_special: bool = False) -> bool:
         """
         Check if timestamp overlaps with existing lane periods
+        exclude_ignore: if True, ignore periods are not considered as overlaps
+        exclude_special: if True, special lanes (SK*, IGNORE) are not considered as overlaps
         """
         for fix in self.lane_fixes:
             if fix.from_time is not None and fix.to_time is not None:
+                # Skip ignore periods if exclude_ignore is True
+                if exclude_ignore and fix.ignore:
+                    continue
+                # Skip special lanes (SK*, or ignore entries) if exclude_special is True
+                if exclude_special and (fix.lane.startswith('SK') or fix.ignore):
+                    continue
                 if fix.from_time <= timestamp <= fix.to_time:
                     return True
         return False
@@ -189,6 +292,17 @@ class LaneManager:
     def get_lane_fixes(self) -> List[LaneFix]:
         """Get all lane fixes"""
         return self.lane_fixes.copy()
+
+    def get_lane_at_timestamp(self, timestamp: datetime) -> str:
+        """Get the lane code active at the given timestamp"""
+        for fix in self.lane_fixes:
+            if fix.from_time is not None and fix.to_time is not None:
+                # Skip ignore entries
+                if fix.ignore:
+                    continue
+                if fix.from_time <= timestamp <= fix.to_time:
+                    return fix.lane
+        return None
 
     def clear(self):
         """Clear all lane assignments"""
@@ -303,7 +417,8 @@ class LaneManager:
                         from_time=from_time,
                         to_time=to_time,
                         lane=row.get('Lane', ''),
-                        file_id=self.fileid_folder.name
+                        file_id=self.fileid_folder.name,
+                        ignore=row.get('Ignore', '').strip() == '1'
                     )
                     self.lane_fixes.append(lane_fix)
 
@@ -351,7 +466,7 @@ class LaneManager:
                         fix.from_time.strftime('%H:%M:%S.%f')[:-3],  # Remove last 3 digits of microseconds
                         fix.to_time.strftime('%H:%M:%S.%f')[:-3],
                         fix.lane,
-                        '',  # Ignore
+                        '1' if fix.ignore else '',  # Ignore
                         '',  # RegionID
                         '',  # RoadID
                         'N'  # Travel direction
@@ -372,7 +487,9 @@ class LaneManager:
             '2': '#3498DB',  # Blue
             '3': '#F39C12',  # Orange
             '4': '#E74C3C',  # Red
-            '-1': '#7F8C8D', # Ignore - Dark Gray
+            'IGNORE': '#7F8C8D', # Ignore - Dark Gray
+            'SK1': '#FF6B35', # Shoulder lane 1 - Red-orange
+            'SK2': '#FF6B35', # Shoulder lane 2 - Red-orange
             'TK': '#9B59B6', # Turn Left - Purple
             'TM': '#9B59B6', # Turn Right - Purple
         }

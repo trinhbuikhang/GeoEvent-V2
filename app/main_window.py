@@ -377,6 +377,14 @@ class MainWindow(QMainWindow):
             self.photo_tab.prev_fileid_btn.setEnabled(prev_enabled)
             self.photo_tab.next_fileid_btn.setEnabled(next_enabled)
 
+            # Update FileID combo box
+            self.photo_tab.fileid_combo.blockSignals(True)
+            self.photo_tab.fileid_combo.clear()
+            for fileid_folder in self.fileid_manager.fileid_list:
+                self.photo_tab.fileid_combo.addItem(fileid_folder.fileid)
+            self.photo_tab.fileid_combo.setCurrentText(current.fileid)
+            self.photo_tab.fileid_combo.blockSignals(False)
+
             logging.info(f"Navigation updated: index={index}, total={total}, prev_enabled={prev_enabled}, next_enabled={next_enabled}")
         else:
             logging.warning("No current FileID for navigation update")

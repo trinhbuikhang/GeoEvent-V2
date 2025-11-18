@@ -34,7 +34,7 @@ class ExportManager:
 
                 # Write header matching the example format
                 writer.writerow([
-                    'Plate', 'From', 'To', 'Lane', 'Ignore', 'RegionID', 'RoadID', 'Travel'
+                    'Plate', 'From', 'To', 'Lane', 'Ignore', 'FileID', 'RegionID', 'RoadID', 'Travel'
                 ])
 
                 # Write data
@@ -51,7 +51,8 @@ class ExportManager:
                         from_time_str,
                         to_time_str,
                         fix.lane,
-                        '',  # Ignore column (empty)
+                        '1' if fix.ignore else '',  # Ignore column
+                        fix.file_id,  # FileID column
                         '',  # RegionID (empty)
                         '',  # RoadID (empty)
                         'N'  # Travel (always 'N' based on example)
@@ -119,7 +120,8 @@ class ExportManager:
                             from_time=datetime.strptime(str(row['From']), '%d/%m/%y %H:%M:%S.%f'),
                             to_time=datetime.strptime(str(row['To']), '%d/%m/%y %H:%M:%S.%f'),
                             lane=str(row['Lane']),
-                            file_id=str(row['FileID'])
+                            file_id=str(row['FileID']),
+                            ignore=str(row.get('Ignore', '')).strip() in ['1', '1.0']
                         )
                         existing_fixes.append(fix)
                     except (KeyError, ValueError):
@@ -137,6 +139,26 @@ class ExportManager:
         except Exception as e:
             print(f"Error merging lane fixes: {e}")
             return False
+
+    def _load_existing_fixes(self, existing_path: str) -> List[LaneFix]:
+        """Load existing fixes from CSV for debugging"""
+        existing_fixes = []
+        if os.path.exists(existing_path):
+            df = pd.read_csv(existing_path)
+            for _, row in df.iterrows():
+                try:
+                    fix = LaneFix(
+                        plate=str(row['Plate']),
+                        from_time=datetime.strptime(str(row['From']), '%d/%m/%y %H:%M:%S.%f'),
+                        to_time=datetime.strptime(str(row['To']), '%d/%m/%y %H:%M:%S.%f'),
+                        lane=str(row['Lane']),
+                        file_id=str(row['FileID']),
+                        ignore=str(row.get('Ignore', '')).strip() in ['1', '1.0']
+                    )
+                    existing_fixes.append(fix)
+                except (KeyError, ValueError):
+                    continue
+        return existing_fixes
 
     def _remove_duplicates(self, fixes: List[LaneFix]) -> List[LaneFix]:
         """Remove duplicate lane fixes"""
