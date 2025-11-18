@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QComboBox, QSlider, QMenu, QInputDialog, QMessageBox, QLineEdit
 )
-from PyQt6.QtCore import Qt, QRect, QPoint, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, QRect, QPoint, pyqtSignal, QTimer, QMutex, QMutexLocker
 from PyQt6.QtGui import QPainter, QPen, QColor, QBrush, QFont, QAction
 
 from ..models.event_model import Event
@@ -22,11 +22,12 @@ LAYER_HEIGHT = 25
 TIMELINE_TOP_MARGIN = 40
 CONTROLS_HEIGHT = 60
 CHAINAGE_SCALE_HEIGHT = 30  # Height for chainage scale at bottom
-HANDLE_SNAP_DISTANCE = 10
+HANDLE_SNAP_DISTANCE = 20
 DEFAULT_EVENT_DURATION = 30  # seconds
 GRID_SNAP_SECONDS = 1
 INT32_MIN = -2147483648
 INT32_MAX = 2147483647
+MAX_TIMEDELTA_SECONDS = 999999999  # Safe limit for timedelta
 
 class TimelineArea(QWidget):
     """
@@ -107,9 +108,11 @@ class TimelineWidget(QWidget):
         # View parameters
         self.view_start_time: Optional[datetime] = None
         self.view_end_time: Optional[datetime] = None
+        self.base_view_start_time: Optional[datetime] = None  # Base range for zoom calculations
+        self.base_view_end_time: Optional[datetime] = None
         self.image_start_time: Optional[datetime] = None  # Actual image time range for chainage mapping
         self.image_end_time: Optional[datetime] = None
-        self.zoom_level = 50.0  # pixels per second - adjusted for smaller time ranges
+        self.zoom_level = 1.0  # Zoom factor: 1.0 = full range, >1.0 = zoom in, <1.0 = zoom out
         self.pan_offset = 0
 
         # Interaction state
@@ -124,10 +127,12 @@ class TimelineWidget(QWidget):
         self.new_event_start: Optional[datetime] = None
         self.new_event_end: Optional[datetime] = None
         self.new_event_name: str = ""
+        self.event_coords: Optional[tuple] = None  # Store coordinates for event creation
 
         # Layer cache for performance
         self.layer_cache: Optional[List[List[Event]]] = None
         self.layer_cache_dirty = True
+        self.cache_mutex = QMutex()  # Thread safety for cache
 
         # Colors
         self.event_colors = {
@@ -185,9 +190,9 @@ class TimelineWidget(QWidget):
         control_layout.addWidget(self.zoom_out_btn)
 
         self.zoom_slider = QSlider(Qt.Orientation.Horizontal)
-        self.zoom_slider.setMinimum(1)
-        self.zoom_slider.setMaximum(10000)  # Increased max for very large time ranges
-        self.zoom_slider.setValue(100000)  # Increased default zoom for large time ranges
+        self.zoom_slider.setMinimum(1)      # 0.01 zoom out
+        self.zoom_slider.setMaximum(10000) # 100.0 zoom in
+        self.zoom_slider.setValue(100)     # 1.0 default zoom
         self.zoom_slider.valueChanged.connect(self.zoom_changed)
         control_layout.addWidget(self.zoom_slider)
 
@@ -200,6 +205,11 @@ class TimelineWidget(QWidget):
         self.view_mode_combo.addItems(["Time", "Space"])
         self.view_mode_combo.currentTextChanged.connect(self.view_mode_changed)
         control_layout.addWidget(self.view_mode_combo)
+
+        # Reset button
+        self.reset_btn = QPushButton("Reset")
+        self.reset_btn.clicked.connect(self.reset_timeline)
+        control_layout.addWidget(self.reset_btn)
 
         # Add event button
         self.add_event_btn = QPushButton("Add Event")
@@ -227,11 +237,16 @@ class TimelineWidget(QWidget):
             event.end_time = self.ensure_timezone(event.end_time)
         
         self.events = events
-        self.layer_cache_dirty = True  # Invalidate cache
+        self.invalidate_cache()  # Thread-safe cache invalidation
         
         if update_view_range:
             self.update_view_range()
         self.timeline_area.update()
+
+    def invalidate_cache(self):
+        """Thread-safe cache invalidation"""
+        with QMutexLocker(self.cache_mutex):
+            self.layer_cache_dirty = True
 
     def set_current_position(self, timestamp: datetime):
         """Set current position marker"""
@@ -246,7 +261,7 @@ class TimelineWidget(QWidget):
         # Only set view range if no events are loaded yet
         # When events exist, ensure current position is visible while keeping events in view
         if not self.events:
-            padding = timedelta(minutes=30)  # Show 30 minutes around current position
+            padding = timedelta(minutes=0.5)  # Show 0.5 minutes around current position
             self.view_start_time = timestamp - padding
             self.view_end_time = timestamp + padding
         else:
@@ -339,18 +354,23 @@ class TimelineWidget(QWidget):
                     logging.info(f"TimelineWidget: Expanded time range to include lane fixes: {start_time} to {end_time}")
 
         # Add padding to show full range
-        padding = timedelta(minutes=5)  # 5 minutes padding
+        padding = timedelta(minutes=0.5)  # 0.5 minute padding
         self.view_start_time = start_time - padding
         self.view_end_time = end_time + padding
 
+        # Set base range for zoom calculations
+        self.base_view_start_time = self.view_start_time
+        self.base_view_end_time = self.view_end_time
+
         logging.info(f"TimelineWidget: Image time range set to {self.view_start_time} to {self.view_end_time} (with {padding} padding)")
+        logging.debug(f"TimelineWidget: Base range set to {self.base_view_start_time} - {self.base_view_end_time}")
 
         # Auto-adjust zoom level to fit the time range in the widget width
         time_range_seconds = (self.view_end_time - self.view_start_time).total_seconds()
         if time_range_seconds > 0:
             self.zoom_level = 1.0
 
-        self.layer_cache_dirty = True
+        self.invalidate_cache()
         self.timeline_area.update()
 
     def update_view_range(self):
@@ -365,19 +385,64 @@ class TimelineWidget(QWidget):
         min_start = min(start_times)
         max_end = max(end_times)
 
-        self.view_start_time = min_start
-        self.view_end_time = max_end
+        # Set base range
+        self.base_view_start_time = min_start
+        self.base_view_end_time = max_end
 
-        # Add some padding
+        # Add some padding to base
         padding = timedelta(seconds=30)
-        self.view_start_time -= padding
-        self.view_end_time += padding
+        self.base_view_start_time -= padding
+        self.base_view_end_time += padding
 
+        # Initially, view range equals base range
+        self.view_start_time = self.base_view_start_time
+        self.view_end_time = self.base_view_end_time
+
+        logging.debug(f"TimelineWidget: Base range updated to {self.base_view_start_time} - {self.base_view_end_time}")
         logging.debug(f"TimelineWidget: View range updated to {self.view_start_time} - {self.view_end_time}")
 
     def zoom_changed(self, value):
         """Handle zoom slider change"""
-        self.zoom_level = value / 10.0  # 0.1 to 1000.0
+        if not self.base_view_start_time or not self.base_view_end_time:
+            return
+
+        # Zoom level: 0.01 (zoom out) to 100.0 (zoom in), default 1.0
+        self.zoom_level = value / 100.0  # slider value 1-10000 -> zoom 0.01-100.0
+
+        # Calculate base range duration
+        base_duration = (self.base_view_end_time - self.base_view_start_time).total_seconds()
+
+        # Calculate new view duration (smaller when zoom in)
+        new_duration = base_duration / self.zoom_level
+
+        # Calculate center for zoom (use current position if available, otherwise current view center)
+        if self.current_position and self.base_view_start_time <= self.current_position <= self.base_view_end_time:
+            zoom_center = self.current_position
+        elif self.view_start_time and self.view_end_time:
+            zoom_center = self.view_start_time + (self.view_end_time - self.view_start_time) / 2
+        else:
+            zoom_center = self.base_view_start_time + timedelta(seconds=base_duration / 2)
+
+        # Ensure center is within base range
+        base_center = self.base_view_start_time + timedelta(seconds=base_duration / 2)
+        max_offset = (base_duration - new_duration) / 2
+        center_offset = (zoom_center - base_center).total_seconds()
+        center_offset = max(-max_offset, min(max_offset, center_offset))
+
+        # Calculate new view range
+        new_center = base_center + timedelta(seconds=center_offset)
+        self.view_start_time = new_center - timedelta(seconds=new_duration / 2)
+        self.view_end_time = new_center + timedelta(seconds=new_duration / 2)
+
+        # Ensure view range stays within base range
+        if self.view_start_time < self.base_view_start_time:
+            self.view_start_time = self.base_view_start_time
+            self.view_end_time = self.view_start_time + timedelta(seconds=new_duration)
+        if self.view_end_time > self.base_view_end_time:
+            self.view_end_time = self.base_view_end_time
+            self.view_start_time = self.view_end_time - timedelta(seconds=new_duration)
+
+        logging.debug(f"Zoom level: {self.zoom_level}, View range: {self.view_start_time} - {self.view_end_time}")
         self.timeline_area.update()
 
     def zoom_in(self):
@@ -394,6 +459,28 @@ class TimelineWidget(QWidget):
         """Handle view mode change"""
         # TODO: Implement space-based view
         self.timeline_area.update()
+
+    def reset_timeline(self):
+        """Reset timeline to default state"""
+        logging.info("TimelineWidget: Resetting timeline to default state")
+
+        # Reset zoom
+        self.zoom_level = 1.0
+        self.zoom_slider.setValue(100)  # 100 corresponds to zoom_level = 1.0
+
+        # Reset view range to base range
+        if self.base_view_start_time and self.base_view_end_time:
+            self.view_start_time = self.base_view_start_time
+            self.view_end_time = self.base_view_end_time
+
+        # Reset pan
+        self.pan_offset = 0
+
+        # Update display
+        self.invalidate_cache()
+        self.timeline_area.update()
+
+        logging.info(f"TimelineWidget: Reset complete - zoom: {self.zoom_level}, view: {self.view_start_time} to {self.view_end_time}")
 
     def add_event_dialog(self, coords=None):
         """Show dialog to add new event"""
@@ -438,6 +525,7 @@ class TimelineWidget(QWidget):
             self.new_event_start = None
             self.new_event_end = None
             self.new_event_name = ""
+            self.event_coords = None  # Clear coordinates
 
 
     def paint_timeline(self, painter: QPainter, rect: QRect):
@@ -451,7 +539,7 @@ class TimelineWidget(QWidget):
         if rect.width() <= 0:
             return
 
-        pixels_per_second = (rect.width() * self.zoom_level) / time_range
+        pixels_per_second = rect.width() / time_range
 
         # Prevent division by zero
         if pixels_per_second <= 0:
@@ -513,22 +601,33 @@ class TimelineWidget(QWidget):
         if not self.gps_data or not self.view_start_time or not self.view_end_time:
             return
 
+        if not self.gps_data.points:
+            return
+
         # Use same time range and pixels_per_second as timeline for alignment
         time_range = (self.view_end_time - self.view_start_time).total_seconds()
         if time_range <= 0:
             return
 
-        pixels_per_second = (rect.width() * self.zoom_level) / time_range
+        # Check for zero width before division
+        if rect.width() <= 0:
+            return
+
+        pixels_per_second = rect.width() / time_range
         if pixels_per_second <= 0:
             pixels_per_second = 0.001
 
-        # Use GPS data range for consistent chainage scale
-        # Find min and max chainage in GPS data
-        if not self.gps_data.points:
-            return
-
-        min_chainage = min(p.chainage for p in self.gps_data.points)
-        max_chainage = max(p.chainage for p in self.gps_data.points)
+        # Calculate chainage range for visible time period
+        visible_points = [p for p in self.gps_data.points 
+                         if self.view_start_time <= p.timestamp <= self.view_end_time]
+        if not visible_points:
+            # Fallback to full range if no points in view
+            min_chainage = min(p.chainage for p in self.gps_data.points)
+            max_chainage = max(p.chainage for p in self.gps_data.points)
+        else:
+            min_chainage = min(p.chainage for p in visible_points)
+            max_chainage = max(p.chainage for p in visible_points)
+        
         chainage_range = max_chainage - min_chainage
 
         if chainage_range <= 0:
@@ -596,28 +695,29 @@ class TimelineWidget(QWidget):
 
     def rebuild_layer_cache(self, rect: QRect):
         """Rebuild layer cache for events"""
-        max_layers = max(1, rect.height() // LAYER_HEIGHT)
-        self.layer_cache = [[] for _ in range(max_layers)]
+        with QMutexLocker(self.cache_mutex):
+            max_layers = max(1, rect.height() // LAYER_HEIGHT)
+            self.layer_cache = [[] for _ in range(max_layers)]
 
-        for event in self.events:
-            # Check if event is visible in current view
-            event_visible = (event.start_time <= self.view_end_time and event.end_time >= self.view_start_time)
-            
-            if not event_visible:
-                continue
+            for event in self.events:
+                # Check if event is visible in current view
+                event_visible = (event.start_time <= self.view_end_time and event.end_time >= self.view_start_time)
+                
+                if not event_visible:
+                    continue
 
-            # Find available layer
-            layer = 0
-            while layer < max_layers:
-                if not self.event_overlaps_layer(event, self.layer_cache[layer]):
-                    self.layer_cache[layer].append(event)
-                    break
-                layer += 1
-            else:
-                # All layers full, use first layer
-                self.layer_cache[0].append(event)
+                # Find available layer
+                layer = 0
+                while layer < max_layers:
+                    if not self.event_overlaps_layer(event, self.layer_cache[layer]):
+                        self.layer_cache[layer].append(event)
+                        break
+                    layer += 1
+                else:
+                    # All layers full, use first layer
+                    self.layer_cache[0].append(event)
 
-        self.layer_cache_dirty = False
+            self.layer_cache_dirty = False
 
     def paint_events(self, painter: QPainter, rect: QRect, pixels_per_second: float):
         """Paint events on timeline"""
@@ -626,9 +726,10 @@ class TimelineWidget(QWidget):
             self.rebuild_layer_cache(rect)
 
         # Paint events by layer
-        for layer_idx, layer_events in enumerate(self.layer_cache):
-            for event in layer_events:
-                self.paint_event(painter, rect, event, layer_idx, LAYER_HEIGHT, pixels_per_second)
+        if self.layer_cache:
+            for layer_idx, layer_events in enumerate(self.layer_cache):
+                for event in layer_events:
+                    self.paint_event(painter, rect, event, layer_idx, LAYER_HEIGHT, pixels_per_second)
 
         # Paint new event being created
         if self.creating_event and self.new_event_start and self.new_event_end:
@@ -655,6 +756,16 @@ class TimelineWidget(QWidget):
         visible_start = max(start_x, rect.left())
         visible_end = min(end_x, rect.right())
         width = visible_end - visible_start
+
+        # Ensure minimum width for very short events (at least 8 pixels)
+        MIN_EVENT_WIDTH = 8
+        if width < MIN_EVENT_WIDTH and visible_start < visible_end:
+            # Extend the visible area to meet minimum width
+            center = (visible_start + visible_end) / 2
+            half_width = MIN_EVENT_WIDTH / 2
+            visible_start = max(rect.left(), center - half_width)
+            visible_end = min(rect.right(), center + half_width)
+            width = visible_end - visible_start
 
         if width < 1:
             return
@@ -782,26 +893,44 @@ class TimelineWidget(QWidget):
             painter.drawText(int(mid_x) - 30, rect.top() + 40, self.new_event_name)
 
     def time_to_pixel(self, time: datetime, pixels_per_second: float, offset: int = 0) -> float:
-        """Convert timestamp to pixel position"""
+        """Convert timestamp to pixel position with overflow protection"""
         if not self.view_start_time:
             return 0
 
         # Ensure timezone
         time = self.ensure_timezone(time)
         
+        # Calculate seconds difference
         seconds = (time - self.view_start_time).total_seconds()
+        
+        # Clamp seconds to safe range before multiplication
+        seconds = max(-MAX_TIMEDELTA_SECONDS, min(MAX_TIMEDELTA_SECONDS, seconds))
+        
+        # Calculate pixel position
         pixel_pos = offset + seconds * pixels_per_second
         
-        # Clamp to prevent overflow
+        # Clamp to prevent INT32 overflow
         return max(INT32_MIN, min(INT32_MAX, pixel_pos))
 
     def pixel_to_time(self, x: float, pixels_per_second: float, offset: int = 0) -> datetime:
-        """Convert pixel position to timestamp"""
+        """Convert pixel position to timestamp with validation"""
         if not self.view_start_time or pixels_per_second <= 0:
             return datetime.now(timezone.utc)
 
+        # Validate input x is within reasonable bounds
+        x = max(INT32_MIN, min(INT32_MAX, x))
+        
+        # Calculate seconds
         seconds = (x - offset) / pixels_per_second
-        return self.view_start_time + timedelta(seconds=seconds)
+        
+        # Clamp seconds to safe range for timedelta
+        seconds = max(-MAX_TIMEDELTA_SECONDS, min(MAX_TIMEDELTA_SECONDS, seconds))
+        
+        try:
+            return self.view_start_time + timedelta(seconds=seconds)
+        except (OverflowError, ValueError) as e:
+            logging.error(f"Error converting pixel to time: {e}")
+            return self.view_start_time
 
     def mousePressEvent(self, event):
         """Handle mouse press"""
@@ -861,14 +990,19 @@ class TimelineWidget(QWidget):
             self.dragging = True
             self.drag_start_pos = event.position().toPoint()
 
-            # Determine drag handle
+            # Determine drag handle with adaptive snap distance
             start_x = self.time_to_pixel(clicked_event.start_time, pixels_per_second, timeline_rect.left())
             end_x = self.time_to_pixel(clicked_event.end_time, pixels_per_second, timeline_rect.left())
 
             mouse_x = event.position().x()
-            if abs(mouse_x - start_x) < HANDLE_SNAP_DISTANCE:
+            event_width = end_x - start_x
+            
+            # Use larger snap distance for very short events
+            snap_distance = max(HANDLE_SNAP_DISTANCE, min(15, event_width / 4))
+            
+            if abs(mouse_x - start_x) < snap_distance:
                 self.drag_handle = 'start'
-            elif abs(mouse_x - end_x) < HANDLE_SNAP_DISTANCE:
+            elif abs(mouse_x - end_x) < snap_distance:
                 self.drag_handle = 'end'
             else:
                 self.drag_handle = 'move'
@@ -949,7 +1083,7 @@ class TimelineWidget(QWidget):
                     self.complete_event_creation()
                     return
 
-                # Find event at click position (FIXED: use correct parameter)
+                # Find event at click position
                 clicked_event = self.get_event_at_position(event.position().toPoint(), timeline_rect, pixels_per_second)
                 if clicked_event:
                     self.edit_event(clicked_event)
@@ -972,7 +1106,7 @@ class TimelineWidget(QWidget):
                 'end_chainage': edited_event.end_chainage
             }
             self.event_modified.emit(edited_event.event_id, changes)
-            self.layer_cache_dirty = True
+            self.invalidate_cache()
             self.timeline_area.update()
 
     def handle_drag_marker(self, event):
@@ -998,21 +1132,10 @@ class TimelineWidget(QWidget):
 
         new_time = self.pixel_to_time(event.position().x(), pixels_per_second, timeline_rect.left())
 
-        # Update event in realtime
-        if self.drag_handle == 'start':
-            self.selected_event.start_time = new_time
-        elif self.drag_handle == 'end':
-            self.selected_event.end_time = new_time
-        elif self.drag_handle == 'move':
-            duration = self.selected_event.end_time - self.selected_event.start_time
-            self.selected_event.start_time = new_time
-            self.selected_event.end_time = new_time + duration
-
-        self.layer_cache_dirty = True
-        self.timeline_area.update()
-
-        # Update event
+        # Prepare changes dict
         changes = {}
+
+        # Update event based on drag handle
         if self.drag_handle == 'start':
             self.selected_event.start_time = new_time
             changes['start_time'] = new_time
@@ -1026,8 +1149,9 @@ class TimelineWidget(QWidget):
             changes['start_time'] = new_time
             changes['end_time'] = new_time + duration
 
+        # Emit modification signal
         self.event_modified.emit(self.selected_event.event_id, changes)
-        self.layer_cache_dirty = True
+        self.invalidate_cache()
         self.timeline_area.update()
 
         # Sync to nearest image
@@ -1063,7 +1187,12 @@ class TimelineWidget(QWidget):
             end_x = self.time_to_pixel(event_at_pos.end_time, pixels_per_second, timeline_rect.left())
 
             mouse_x = event.position().x()
-            if abs(mouse_x - start_x) < HANDLE_SNAP_DISTANCE or abs(mouse_x - end_x) < HANDLE_SNAP_DISTANCE:
+            event_width = end_x - start_x
+            
+            # Use larger snap distance for very short events
+            snap_distance = max(HANDLE_SNAP_DISTANCE, min(15, event_width / 4))
+            
+            if abs(mouse_x - start_x) < snap_distance or abs(mouse_x - end_x) < snap_distance:
                 self.setCursor(Qt.CursorShape.SizeHorCursor)
             else:
                 self.setCursor(Qt.CursorShape.OpenHandCursor)
@@ -1089,17 +1218,11 @@ class TimelineWidget(QWidget):
             # Create tooltip with event information
             tooltip_lines = []
             tooltip_lines.append(f"<b>{hovered_event.event_name}</b>")
-            #tooltip_lines.append(f"ID: {hovered_event.event_id}")
             tooltip_lines.append(f"Start: {hovered_event.start_time.strftime('%H:%M:%S')}")
             tooltip_lines.append(f"End: {hovered_event.end_time.strftime('%H:%M:%S')}")
             tooltip_lines.append(f"Duration: {hovered_event.duration_seconds:.1f}s")
             tooltip_lines.append(f"Chainage: {hovered_event.start_chainage:.1f}m - {hovered_event.end_chainage:.1f}m")
             tooltip_lines.append(f"Length: {hovered_event.length_meters:.1f}m")
-            
-            # if hovered_event.start_lat and hovered_event.start_lon:
-            #     tooltip_lines.append(f"Start GPS: {hovered_event.start_lat:.6f}, {hovered_event.start_lon:.6f}")
-            # if hovered_event.end_lat and hovered_event.end_lon:
-            #     tooltip_lines.append(f"End GPS: {hovered_event.end_lat:.6f}, {hovered_event.end_lon:.6f}")
             
             tooltip = "<br>".join(tooltip_lines)
             self.timeline_area.setToolTip(tooltip)
@@ -1142,27 +1265,45 @@ class TimelineWidget(QWidget):
         if time_range <= 0:
             return 1.0
             
-        pixels_per_second = (timeline_rect.width() * self.zoom_level) / time_range
+        pixels_per_second = timeline_rect.width() / time_range
         
         # Prevent division by zero in pixel_to_time
         return max(0.001, pixels_per_second)
 
     def get_event_at_position(self, pos: QPoint, timeline_rect: QRect, pixels_per_second: float) -> Optional[Event]:
-        """Get event at mouse position"""
-        for event in self.events:
-            start_x = self.time_to_pixel(event.start_time, pixels_per_second, timeline_rect.left())
-            end_x = self.time_to_pixel(event.end_time, pixels_per_second, timeline_rect.left())
+        """Get event at mouse position (returns the topmost event in layers)"""
+        # Rebuild cache if needed
+        if self.layer_cache_dirty or self.layer_cache is None:
+            self.rebuild_layer_cache(timeline_rect)
 
-            # Safety check for invalid coordinates
-            if not (INT32_MIN <= start_x <= INT32_MAX and INT32_MIN <= end_x <= INT32_MAX):
-                continue
+        # Check layers from top to bottom (higher layers are drawn on top)
+        for layer_idx in range(len(self.layer_cache) - 1, -1, -1):
+            layer_events = self.layer_cache[layer_idx]
+            for event in layer_events:
+                # Check if event is visible in current view
+                if not (event.start_time <= self.view_end_time and event.end_time >= self.view_start_time):
+                    continue
 
-            # Check each layer
-            for layer in range(10):  # Max layers
-                y = timeline_rect.top() + layer * LAYER_HEIGHT
+                start_x = self.time_to_pixel(event.start_time, pixels_per_second, timeline_rect.left())
+                end_x = self.time_to_pixel(event.end_time, pixels_per_second, timeline_rect.left())
+
+                # Safety check for invalid coordinates
+                if not (INT32_MIN <= start_x <= INT32_MAX and INT32_MIN <= end_x <= INT32_MAX):
+                    continue
+
+                # Check if event is on screen
+                if end_x <= timeline_rect.left() or start_x >= timeline_rect.right():
+                    continue
+
+                # Check event rect at this layer with hover tolerance
+                y = timeline_rect.top() + layer_idx * LAYER_HEIGHT
                 event_rect = QRect(int(start_x), y, int(end_x - start_x), LAYER_HEIGHT)
 
-                if event_rect.contains(pos):
+                # Add hover tolerance for short events (expand rect by 5 pixels on each side)
+                HOVER_TOLERANCE = 5
+                expanded_rect = event_rect.adjusted(-HOVER_TOLERANCE, -HOVER_TOLERANCE, HOVER_TOLERANCE, HOVER_TOLERANCE)
+
+                if expanded_rect.contains(pos):
                     return event
 
         return None
@@ -1187,7 +1328,7 @@ class TimelineWidget(QWidget):
         if reply == QMessageBox.StandardButton.Yes:
             logging.info(f"TimelineWidget: User confirmed deletion of event '{event.event_name}' (ID: {event.event_id})")
             self.event_deleted.emit(event.event_id)
-            self.layer_cache_dirty = True
+            self.invalidate_cache()
         else:
             logging.info(f"TimelineWidget: User cancelled deletion of event '{event.event_name}' (ID: {event.event_id})")
 
@@ -1245,21 +1386,22 @@ class TimelineWidget(QWidget):
 
         logging.info(f"TimelineWidget: Created new event '{self.new_event_name}' (ID: {event_id}) from {self.new_event_start} to {self.new_event_end}")
 
-        # Reset creation state
+        # Reset creation state and clear coordinates
         self.creating_event = False
         self.new_event_start = None
         self.new_event_end = None
         self.new_event_name = ""
+        self.event_coords = None  # Clear coordinates after use
 
         # Invalidate layer cache
-        self.layer_cache_dirty = True
+        self.invalidate_cache()
 
         # Emit signal to add the event
         self.event_created.emit(new_event)
 
     def save_events(self):
         """Save all events"""
-        if self.photo_tab:
+        if self.photo_tab and hasattr(self.photo_tab, 'save_all_events_internal'):
             success = self.photo_tab.save_all_events_internal()
             if success:
                 self.save_event_btn.setText("✅ Saved!")
@@ -1267,8 +1409,12 @@ class TimelineWidget(QWidget):
             else:
                 self.save_event_btn.setText("❌ Save Failed!")
                 QTimer.singleShot(3000, lambda: self.save_event_btn.setText("💾 Save Event"))
+        else:
+            logging.warning("TimelineWidget: Cannot save events - photo_tab or save_all_events_internal method not available")
 
     def save_lane_codes(self):
         """Save lane codes"""
-        if self.photo_tab:
+        if self.photo_tab and hasattr(self.photo_tab, 'save_lane_codes'):
             self.photo_tab.save_lane_codes()
+        else:
+            logging.warning("TimelineWidget: Cannot save lane codes - photo_tab or save_lane_codes method not available")
