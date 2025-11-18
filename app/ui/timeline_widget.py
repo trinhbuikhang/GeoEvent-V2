@@ -1210,9 +1210,8 @@ class TimelineWidget(QWidget):
         if self.lane_change_mode_active:
             # In lane change mode, emit lane change position changed
             self.lane_change_position_changed.emit(new_time)
-        else:
-            # Emit position changed for realtime sync
-            self.position_clicked.emit(new_time, (None, None))
+        # Note: Removed position_clicked emit during dragging to prevent unwanted image syncing
+        # The position will be synced when the marker is released
 
     def handle_drag_lane_marker(self, event):
         """Handle dragging lane change marker"""
@@ -1270,6 +1269,10 @@ class TimelineWidget(QWidget):
             # Apply lane change when marker is released in lane change mode
             if self.lane_change_mode_active and self.photo_tab and hasattr(self.photo_tab, '_apply_lane_change'):
                 self.photo_tab._apply_lane_change()
+            else:
+                # Emit position clicked when marker is released (not in lane change mode)
+                # This syncs the image to the final marker position
+                self.position_clicked.emit(self.current_position, (None, None))
             # Reset cursor after dragging
             self.update_cursor(event)
 
