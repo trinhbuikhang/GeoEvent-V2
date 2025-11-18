@@ -970,7 +970,8 @@ class PhotoPreviewTab(QWidget):
 
     def _update_marker_buttons_visibility(self):
         """Update marker buttons visibility based on marker mode"""
-        self.marker_group.setVisible(self.marker_mode_active or self.lane_change_mode_active)
+        # Hide marker buttons in lane change mode (not needed)
+        self.marker_group.setVisible(self.marker_mode_active)
 
     def assign_sk(self):
         """Assign shoulder lane (SK) at current position"""
