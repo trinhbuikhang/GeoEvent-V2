@@ -53,8 +53,6 @@ class LaneManager:
     def __init__(self):
         self.lane_fixes: List[LaneFix] = []
         self.current_lane: Optional[str] = None
-        self.turn_active = False
-        self.turn_start_lane: Optional[str] = None
         self.fileid_folder: Optional[Path] = None
         self.plate: Optional[str] = None
         self.end_time: Optional[datetime] = None  # End time of the folder
@@ -63,7 +61,7 @@ class LaneManager:
     def assign_lane(self, lane_code: str, timestamp: datetime) -> bool:
         """
         Assign lane at given timestamp
-        For direct lane changes, use smart change logic if existing data present
+        All lane types create lane_fix entries for consistency
         Returns True if successful, False if overlap detected
         """
         if not self.plate or not self.fileid_folder:
@@ -73,23 +71,14 @@ class LaneManager:
         # Check if we have existing lane data at this timestamp
         current_lane_at_time = self.get_lane_at_timestamp(timestamp)
         
-        # If changing from one lane to another (not from turn/special state)
-        if (current_lane_at_time and 
-            current_lane_at_time in ['1', '2', '3', '4'] and 
-            lane_code in ['1', '2', '3', '4'] and
-            current_lane_at_time != lane_code):
-            
-            # Use smart change logic for existing lane data
+        # If changing from one lane to another, use smart change logic
+        if current_lane_at_time and current_lane_at_time != lane_code:
             return self.change_lane_smart(lane_code, timestamp)
         
-        # Standard assignment logic for new assignments or special cases
-        # Check for overlaps (exclude ignore and special periods)
-        if self.check_overlap(timestamp, exclude_ignore=True, exclude_special=True):
+        # Standard assignment logic for new assignments
+        # Check for overlaps (exclude ignore periods)
+        if self.check_overlap(timestamp, exclude_ignore=True):
             return False
-
-        # End any active turn when assigning a new lane
-        if self.turn_active:
-            self.end_turn(timestamp)
 
         # If same lane as current, extend period
         if self.current_lane == lane_code and self.lane_fixes:
@@ -101,15 +90,25 @@ class LaneManager:
                 self.lane_fixes[-1].to_time = timestamp
 
             # Start new period
+            # Handle special lane codes
+            actual_lane_code = lane_code
+            if lane_code == 'SK':
+                # SK uses previous lane number (SK1, SK2, etc.)
+                if self.current_lane and self.current_lane in ['1', '2', '3', '4']:
+                    actual_lane_code = f"SK{self.current_lane}"
+                else:
+                    actual_lane_code = "SK"
+            
             lane_fix = LaneFix(
                 plate=self.plate,
                 from_time=timestamp,
                 to_time=timestamp,  # Will be extended later
-                lane=lane_code,
+                lane=actual_lane_code,
+                ignore=(lane_code == ''),  # Mark as ignore if lane_code is empty
                 file_id=self.fileid_folder.name
             )
             self.lane_fixes.append(lane_fix)
-            self.current_lane = lane_code
+            self.current_lane = actual_lane_code
 
             # If this is the last lane assignment and we have end_time, extend to end
             if self.end_time and not self._has_lane_after(timestamp):
@@ -121,10 +120,8 @@ class LaneManager:
 
     def change_lane_smart(self, new_lane_code: str, timestamp: datetime, user_choice_callback=None, custom_end_time: datetime = None) -> bool:
         """
-        Smart lane change with user choice for scope of change
+        Smart lane change for all lane types using period splitting
         Returns True if successful, False otherwise
-        
-        user_choice_callback: function that returns 'forward', 'backward', or 'current'
         """
         if not self.plate or not self.fileid_folder:
             logging.warning("No plate or fileid_folder set for smart lane change")
@@ -132,8 +129,8 @@ class LaneManager:
 
         # Find the current lane period at this timestamp
         current_lane_at_time = self.get_lane_at_timestamp(timestamp)
-        if not current_lane_at_time or current_lane_at_time not in ['1', '2', '3', '4']:
-            logging.warning(f"No valid lane found at timestamp {timestamp}")
+        if not current_lane_at_time:
+            logging.warning(f"No lane found at timestamp {timestamp}")
             return False
 
         if current_lane_at_time == new_lane_code:
@@ -179,8 +176,8 @@ class LaneManager:
             # Change entire current period
             self._apply_lane_change_entire(target_fix, new_lane_code)
         elif change_scope == 'custom' and custom_end_time:
-            # Change from timestamp to custom_end_time
-            self._apply_lane_change_custom(target_fix, new_lane_code, timestamp, custom_end_time)
+            # Change from timestamp to custom_end_time using range logic
+            self.apply_lane_change_range(new_lane_code, timestamp, custom_end_time)
         else:
             logging.error(f"Invalid change scope: {change_scope}")
             return False
@@ -273,162 +270,24 @@ class LaneManager:
                 lane=target_fix.lane,  # Original lane
                 file_id=self.fileid_folder.name
             )
-            self.lane_fixes.append(continuation_fix)
-
     def start_turn(self, turn_type: str, timestamp: datetime, selected_lane: str):
-        """
-        Start turn period with given turn type and selected lane
-        turn_type: 'TM' (right turn) or 'TK' (left turn)
-        selected_lane: '1', '2', '3', or '4'
-        """
-        if not self.plate or not self.fileid_folder:
-            logging.warning("No plate or fileid_folder set for turn start")
-            return
-
-        # End any active turn first
-        if self.turn_active:
-            self.end_turn(timestamp)
-
-        # End current lane period if exists
-        if self.current_lane and self.lane_fixes:
-            self.lane_fixes[-1].to_time = timestamp
-
-        # Start turn period
+        """Start turn period - now just calls assign_lane"""
         turn_lane = f"{turn_type}{selected_lane}"
-        lane_fix = LaneFix(
-            plate=self.plate,
-            from_time=timestamp,
-            to_time=timestamp,  # Will be extended until end_turn
-            lane=turn_lane,
-            file_id=self.fileid_folder.name
-        )
-        self.lane_fixes.append(lane_fix)
-        self.current_lane = turn_lane
-        self.turn_active = True
-        self.turn_start_lane = selected_lane  # Store the lane we're turning from
-
-        self.has_changes = True
+        return self.assign_lane(turn_lane, timestamp)
 
     def end_turn(self, timestamp: datetime):
-        """
-        End turn period and resume previous lane
-        """
-        if not self.turn_active:
-            return
-
-        # End turn period
-        if self.lane_fixes:
-            self.lane_fixes[-1].to_time = timestamp
-
-        # Resume previous lane if exists
-        if self.turn_start_lane:
-            lane_fix = LaneFix(
-                plate=self.lane_fixes[-1].plate,
-                from_time=timestamp,
-                to_time=timestamp,  # Will be extended
-                lane=self.turn_start_lane,
-                file_id=self.lane_fixes[-1].file_id
-            )
-            self.lane_fixes.append(lane_fix)
-            self.current_lane = self.turn_start_lane
-
-        # Reset turn state
-        self.turn_active = False
-        self.turn_start_lane = None
+        """End turn period - no longer needed with unified lane system"""
+        pass
 
         self.has_changes = True
 
     def assign_sk(self, timestamp: datetime) -> bool:
-        """
-        Assign shoulder lane (SK) at given timestamp
-        Uses the previous lane number (SK1, SK2, etc.)
-        Returns True if successful, False if overlap detected
-        """
-        if not self.plate or not self.fileid_folder:
-            logging.warning("No plate or fileid_folder set for SK assignment")
-            return False
-
-        # End any active turn when assigning SK
-        if self.turn_active:
-            self.end_turn(timestamp)
-        # End current period if exists (before checking overlap)
-        if self.current_lane and self.lane_fixes:
-            # End 1 microsecond before timestamp to avoid overlap
-            end_time = timestamp - timedelta(microseconds=1)
-            self.lane_fixes[-1].to_time = end_time
-
-        # Check for overlaps after ending current period (exclude ignore periods only)
-        if self.check_overlap(timestamp, exclude_ignore=True):
-            return False
-
-        # Get previous lane number
-        sk_lane = "SK"
-        if self.current_lane and self.current_lane in ['1', '2', '3', '4']:
-            sk_lane = f"SK{self.current_lane}"
-
-        # Start new SK period
-        lane_fix = LaneFix(
-            plate=self.plate,
-            from_time=timestamp,
-            to_time=timestamp,  # Will be extended later
-            lane=sk_lane,
-            file_id=self.fileid_folder.name,
-            ignore=False
-        )
-        self.lane_fixes.append(lane_fix)
-        self.current_lane = sk_lane
-
-        # If this is the last lane assignment and we have end_time, extend to end
-        if self.end_time and not self._has_lane_after(timestamp):
-            lane_fix.to_time = self.end_time
-            logging.info(f"Extended SK lane {sk_lane} to folder end time: {self.end_time}")
-
-        self.has_changes = True
-        return True
+        """Assign shoulder lane (SK) at given timestamp"""
+        return self.assign_lane('SK', timestamp)
 
     def assign_ignore(self, timestamp: datetime) -> bool:
-        """
-        Assign ignore period at given timestamp
-        Returns True if successful, False if overlap detected
-        """
-        if not self.plate or not self.fileid_folder:
-            logging.warning("No plate or fileid_folder set for ignore assignment")
-            return False
-
-        # End any active turn when assigning ignore
-        if self.turn_active:
-            self.end_turn(timestamp)
-
-        # End current period if exists (before checking overlap)
-        if self.current_lane and self.lane_fixes:
-            # End 1 microsecond before timestamp to avoid overlap
-            end_time = timestamp - timedelta(microseconds=1)
-            self.lane_fixes[-1].to_time = end_time
-
-        # Check for overlaps after ending current period (exclude ignore periods only)
-        if self.check_overlap(timestamp, exclude_ignore=True):
-            return False
-
-        # Start new ignore period
-        lane_fix = LaneFix(
-            plate=self.plate,
-            from_time=timestamp,
-            to_time=timestamp,  # Will be extended later
-            lane="",  # Empty lane for ignore entries
-            file_id=self.fileid_folder.name,
-            ignore=True
-        )
-        self.lane_fixes.append(lane_fix)
-        # Don't change current_lane for ignore - keep previous lane
-        # self.current_lane = "IGNORE"
-
-        # If this is the last lane assignment and we have end_time, extend to end
-        if self.end_time and not self._has_lane_after(timestamp):
-            lane_fix.to_time = self.end_time
-            logging.info(f"Extended ignore period to folder end time: {self.end_time}")
-
-        self.has_changes = True
-        return True
+        """Assign ignore period at given timestamp"""
+        return self.assign_lane('', timestamp)
 
     def _has_lane_after(self, timestamp: datetime) -> bool:
         """Check if there are any lane assignments after the given timestamp"""
@@ -463,9 +322,6 @@ class LaneManager:
         """Get the lane code active at the given timestamp"""
         for fix in self.lane_fixes:
             if fix.from_time is not None and fix.to_time is not None:
-                # Skip ignore entries
-                if fix.ignore:
-                    continue
                 if fix.from_time <= timestamp <= fix.to_time:
                     return fix.lane
         return None
@@ -474,8 +330,6 @@ class LaneManager:
         """Clear all lane assignments"""
         self.lane_fixes.clear()
         self.current_lane = None
-        self.turn_active = False
-        self.turn_start_lane = None
 
     def set_fileid_folder(self, fileid_folder_path: str, plate: str = None):
         """Set the current FileID folder and load lane fixes"""
@@ -665,9 +519,7 @@ class LaneManager:
         """Convert to dictionary for serialization"""
         return {
             'lane_fixes': [fix.to_dict() for fix in self.lane_fixes],
-            'current_lane': self.current_lane,
-            'turn_active': self.turn_active,
-            'turn_start_lane': self.turn_start_lane
+            'current_lane': self.current_lane
         }
 
     def get_lane_fixes(self):
@@ -687,12 +539,63 @@ class LaneManager:
         }
         return color_map.get(lane_code, '#9E9E9E')  # Default gray
 
+    def apply_lane_change_range(self, new_lane_code: str, start_time: datetime, end_time: datetime):
+        """Apply lane change for a time range, splitting periods as needed"""
+        # Find all periods that overlap with [start_time, end_time]
+        overlapping_fixes = []
+        for fix in self.lane_fixes:
+            if fix.from_time < end_time and fix.to_time > start_time:
+                overlapping_fixes.append(fix)
+        
+        # Sort by from_time
+        overlapping_fixes.sort(key=lambda x: x.from_time)
+        
+        # Create new periods
+        new_fixes = []
+        
+        # Handle the start part - keep original lane until start_time
+        if overlapping_fixes and overlapping_fixes[0].from_time < start_time:
+            first_fix = overlapping_fixes[0]
+            start_part = LaneFix(
+                plate=self.plate,
+                from_time=first_fix.from_time,
+                to_time=start_time,
+                lane=first_fix.lane,
+                file_id=self.fileid_folder.name
+            )
+            new_fixes.append(start_part)
+        
+        # Add the new lane period
+        new_lane_fix = LaneFix(
+            plate=self.plate,
+            from_time=start_time,
+            to_time=end_time,
+            lane=new_lane_code,
+            file_id=self.fileid_folder.name
+        )
+        new_fixes.append(new_lane_fix)
+        
+        # Handle the end part - keep original lane from end_time
+        if overlapping_fixes and overlapping_fixes[-1].to_time > end_time:
+            last_fix = overlapping_fixes[-1]
+            end_part = LaneFix(
+                plate=self.plate,
+                from_time=end_time,
+                to_time=last_fix.to_time,
+                lane=last_fix.lane,
+                file_id=self.fileid_folder.name
+            )
+            new_fixes.append(end_part)
+        
+        # Replace overlapping fixes with new fixes
+        self.lane_fixes = [fix for fix in self.lane_fixes if fix not in overlapping_fixes] + new_fixes
+        
+        self.has_changes = True
+
     @classmethod
     def from_dict(cls, data: dict) -> 'LaneManager':
         """Create LaneManager from dictionary"""
         manager = cls()
         manager.lane_fixes = [LaneFix.from_dict(fix) for fix in data.get('lane_fixes', [])]
         manager.current_lane = data.get('current_lane')
-        manager.turn_active = data.get('turn_active', False)
-        manager.turn_start_lane = data.get('turn_start_lane')
         return manager

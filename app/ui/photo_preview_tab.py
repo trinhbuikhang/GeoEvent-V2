@@ -37,6 +37,15 @@ class LaneChangeDialog(QDialog):
         
         self.setup_ui()
     
+    def get_lane_display_name(self, lane_code):
+        """Get display name for lane code"""
+        if lane_code == '':
+            return 'Ignore'
+        elif lane_code.startswith('T'):
+            return lane_code  # TK1, TM2, etc.
+        else:
+            return f'Lane {lane_code}'
+    
     def setup_ui(self):
         self.setWindowTitle("Lane Change Mode")
         self.setModal(True)
@@ -45,8 +54,10 @@ class LaneChangeDialog(QDialog):
         layout = QVBoxLayout(self)
         
         # Description
+        current_display = self.get_lane_display_name(self.current_lane)
+        new_display = self.get_lane_display_name(self.new_lane)
         desc_label = QLabel(
-            f"Change from Lane {self.current_lane} to Lane {self.new_lane} at {self.timestamp.strftime('%H:%M:%S')}\n\n"
+            f"Change from {current_display} to {new_display} at {self.timestamp.strftime('%H:%M:%S')}\n\n"
             f"• Drag the yellow marker on the timeline to select the end time\n"
             f"• The change will apply from {self.timestamp.strftime('%H:%M:%S')} to the marker position\n"
             f"• Release the marker to confirm the change\n"
@@ -92,11 +103,6 @@ class PhotoPreviewTab(QWidget):
 
         self.image_cache = {}  # Simple cache for loaded images
         self.events_modified = False  # Track if events have been modified
-        self.marker_mode_active = False
-        self.marker_new_lane = None
-        self.marker_timestamp = None
-        self.marker_period_start = None
-        self.marker_period_end = None
 
         # Lane change mode using current position marker
         self.lane_change_mode_active = False
@@ -204,15 +210,6 @@ class PhotoPreviewTab(QWidget):
         nav_group.setLayout(nav_layout)
         bottom_layout.addWidget(nav_group)
 
-        # Marker control buttons (hidden by default)
-        self.marker_group = QGroupBox("Lane Change Marker")
-        self.marker_group.setStyleSheet("QGroupBox { border: 2px solid black; padding: 5px; }")
-        marker_layout = QHBoxLayout()
-        self.setup_marker_buttons(marker_layout)
-        self.marker_group.setLayout(marker_layout)
-        self.marker_group.setVisible(False)  # Hidden by default
-        bottom_layout.addWidget(self.marker_group)
-
         main_layout.addLayout(bottom_layout)
 
         # Photo slider
@@ -262,42 +259,6 @@ class PhotoPreviewTab(QWidget):
         self.playback_timer = QTimer()
         self.playback_timer.timeout.connect(self.next_image)
         self.is_playing = False
-
-    def setup_marker_buttons(self, parent_layout):
-        """Setup marker control buttons"""
-        self.apply_marker_btn = QPushButton("Apply Change")
-        self.apply_marker_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #4CAF50;
-                color: white;
-                border: 1px solid #388E3C;
-                padding: 8px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #45a049;
-            }
-        """)
-        self.apply_marker_btn.clicked.connect(self._apply_marker_change_from_button)
-        self.apply_marker_btn.setMinimumHeight(40)
-        parent_layout.addWidget(self.apply_marker_btn)
-
-        self.cancel_marker_btn = QPushButton("Cancel")
-        self.cancel_marker_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #F44336;
-                color: white;
-                border: 1px solid #B71C1C;
-                padding: 8px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #E53935;
-            }
-        """)
-        self.cancel_marker_btn.clicked.connect(self._exit_marker_mode)
-        self.cancel_marker_btn.setMinimumHeight(40)
-        parent_layout.addWidget(self.cancel_marker_btn)
 
     def setup_lane_controls(self, parent_layout):
         """Setup lane controls with improved layout"""
@@ -814,20 +775,13 @@ class PhotoPreviewTab(QWidget):
 
         timestamp = self.current_metadata['timestamp']
 
-        # Check if this is a smart change (changing from one lane to another)
+        # Luôn bật popup xác nhận đổi lane khi chuyển từ bất kỳ trạng thái nào sang trạng thái khác
         current_lane_at_time = self.lane_manager.get_lane_at_timestamp(timestamp)
-        is_smart_change = (
-            current_lane_at_time and 
-            current_lane_at_time in ['1', '2', '3', '4'] and 
-            lane_code in ['1', '2', '3', '4'] and
-            current_lane_at_time != lane_code
-        )
-
-        if is_smart_change:
-            # Use smart change logic
+        if current_lane_at_time and current_lane_at_time != lane_code:
+            # Dù là loại lane nào, đều bật smart change dialog
             success = self._perform_smart_lane_change(lane_code, timestamp)
         else:
-            # Use standard assignment
+            # Nếu chưa có lane hoặc trùng, thì gán trực tiếp
             success = self.lane_manager.assign_lane(lane_code, timestamp)
             logging.info(f"PhotoPreviewTab: standard lane_manager.assign_lane returned success={success}")
 
@@ -836,10 +790,6 @@ class PhotoPreviewTab(QWidget):
             # Update timeline to show lane changes
             if hasattr(self.timeline, 'timeline_area'):
                 self.timeline.timeline_area.update()
-            # Reset turn buttons if turn was ended by lane assignment
-            if not self.lane_manager.turn_active:
-                self.turn_right_btn.setChecked(False)
-                self.turn_left_btn.setChecked(False)
         else:
             logging.warning("PhotoPreviewTab: assign_lane failed")
             QMessageBox.warning(
@@ -867,6 +817,7 @@ class PhotoPreviewTab(QWidget):
             return False
         
         # Show choice dialog
+        logging.info(f"PhotoPreviewTab: Creating LaneChangeDialog for {current_lane} -> {new_lane_code}")
         dialog = LaneChangeDialog(
             current_lane=current_lane,
             new_lane=new_lane_code,
@@ -875,9 +826,26 @@ class PhotoPreviewTab(QWidget):
             period_end=target_fix.to_time,
             parent=self
         )
+        logging.info("PhotoPreviewTab: LaneChangeDialog created")
         
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            # Always enable lane change mode using current position marker
+        # Show choice dialog
+        logging.info(f"PhotoPreviewTab: Creating LaneChangeDialog for {current_lane} -> {new_lane_code}")
+        dialog = LaneChangeDialog(
+            current_lane=current_lane,
+            new_lane=new_lane_code,
+            timestamp=timestamp,
+            period_start=target_fix.from_time,
+            period_end=target_fix.to_time,
+            parent=self
+        )
+        logging.info("PhotoPreviewTab: LaneChangeDialog created")
+        
+        logging.info(f"PhotoPreviewTab: Showing lane change dialog for {current_lane} -> {new_lane_code}")
+        result = dialog.exec()
+        logging.info(f"PhotoPreviewTab: Dialog result: {result}")
+        
+        if result == QDialog.DialogCode.Accepted:
+            # Always enable lane change mode using current position marker for all lane types
             self._enable_lane_change_mode(new_lane_code, timestamp)
             return True  # Don't apply change yet, wait for marker confirmation
         else:
@@ -897,20 +865,6 @@ class PhotoPreviewTab(QWidget):
         # Show marker buttons
         self._update_marker_buttons_visibility()
 
-    def _exit_marker_mode(self):
-        """Exit marker mode without applying changes"""
-        self.marker_mode_active = False
-        self.marker_new_lane = None
-        self.marker_timestamp = None
-        self.marker_period_start = None
-        self.marker_period_end = None
-        
-        # Disable marker on timeline
-        self.timeline.disable_marker_mode()
-        
-        # Hide marker buttons
-        self._update_marker_buttons_visibility()
-
     def _exit_lane_change_mode(self):
         """Exit lane change mode without applying changes"""
         self.lane_change_mode_active = False
@@ -922,11 +876,6 @@ class PhotoPreviewTab(QWidget):
         
         # Hide marker buttons
         self._update_marker_buttons_visibility()
-
-    def _apply_marker_change_from_button(self):
-        """Apply marker change from button click"""
-        if self.marker_mode_active and self.marker_timestamp:
-            self._apply_marker_change(self.marker_timestamp)
 
     def _apply_lane_change(self):
         """Apply lane change using dragged marker range"""
@@ -969,79 +918,18 @@ class PhotoPreviewTab(QWidget):
         self._exit_lane_change_mode()
 
     def _update_marker_buttons_visibility(self):
-        """Update marker buttons visibility based on marker mode"""
-        # Hide marker buttons in lane change mode (not needed)
-        self.marker_group.setVisible(self.marker_mode_active)
+        """Update marker buttons visibility - no longer used"""
+        pass
 
     def assign_sk(self):
         """Assign shoulder lane (SK) at current position"""
         logging.info("PhotoPreviewTab: assign_sk called")
-        if not self.current_metadata or 'timestamp' not in self.current_metadata:
-            logging.warning("PhotoPreviewTab: assign_sk failed - no current metadata")
-            return
-
-        if not self.lane_manager:
-            logging.warning("PhotoPreviewTab: assign_sk failed - no lane_manager")
-            return
-
-        timestamp = self.current_metadata['timestamp']
-
-        success = self.lane_manager.assign_sk(timestamp)
-        logging.info(f"PhotoPreviewTab: lane_manager.assign_sk returned success={success}")
-
-        if success:
-            self.update_lane_display()
-            # Update timeline to show lane changes
-            if hasattr(self.timeline, 'timeline_area'):
-                self.timeline.timeline_area.update()
-            # Reset turn buttons if turn was ended by SK assignment
-            if not self.lane_manager.turn_active:
-                self.turn_right_btn.setChecked(False)
-                self.turn_left_btn.setChecked(False)
-        else:
-            logging.warning("PhotoPreviewTab: assign_sk failed - overlap detected")
-            QMessageBox.warning(
-                self, "Shoulder Lane Assignment Failed",
-                f"Cannot assign Shoulder Lane at this time.\n\n"
-                f"Reason: Overlapping with existing lane assignment.\n\n"
-                f"Time: {timestamp.strftime('%H:%M:%S')}\n"
-                f"Plate: {self.current_metadata.get('plate', 'Unknown')}"
-            )
+        self.assign_lane('SK')
 
     def assign_ignore(self):
         """Assign ignore period at current position"""
         logging.info("PhotoPreviewTab: assign_ignore called")
-        if not self.current_metadata or 'timestamp' not in self.current_metadata:
-            logging.warning("PhotoPreviewTab: assign_ignore failed - no current metadata")
-            return
-
-        if not self.lane_manager:
-            logging.warning("PhotoPreviewTab: assign_ignore failed - no lane_manager")
-            return
-
-        timestamp = self.current_metadata['timestamp']
-
-        success = self.lane_manager.assign_ignore(timestamp)
-        logging.info(f"PhotoPreviewTab: lane_manager.assign_ignore returned success={success}")
-
-        if success:
-            self.update_lane_display()
-            # Update timeline to show lane changes
-            if hasattr(self.timeline, 'timeline_area'):
-                self.timeline.timeline_area.update()
-            # Reset turn buttons if turn was ended by ignore assignment
-            if not self.lane_manager.turn_active:
-                self.turn_right_btn.setChecked(False)
-                self.turn_left_btn.setChecked(False)
-        else:
-            logging.warning("PhotoPreviewTab: assign_ignore failed - overlap detected")
-            QMessageBox.warning(
-                self, "Ignore Assignment Failed",
-                f"Cannot assign Ignore period at this time.\n\n"
-                f"Reason: Overlapping with existing lane assignment.\n\n"
-                f"Time: {timestamp.strftime('%H:%M:%S')}\n"
-                f"Plate: {self.current_metadata.get('plate', 'Unknown')}"
-            )
+        self.assign_lane('')
 
     def start_turn(self, turn_type: str):
         """Start turn period or end if already active"""
@@ -1067,26 +955,6 @@ class PhotoPreviewTab(QWidget):
             return
 
         timestamp = self.current_metadata['timestamp']
-
-        # If turn is already active with same type, end it
-        current_turn_type = None
-        if self.lane_manager.turn_active and self.lane_manager.current_lane:
-            if len(self.lane_manager.current_lane) >= 2 and self.lane_manager.current_lane[:2] in ['TK', 'TM']:
-                current_turn_type = self.lane_manager.current_lane[:2]
-        
-        if current_turn_type == turn_type:
-            logging.info(f"PhotoPreviewTab: Ending active {turn_type} turn")
-            self.lane_manager.end_turn(timestamp)
-            self.update_lane_display()
-            # Update timeline to show lane changes
-            if hasattr(self.timeline, 'timeline_area'):
-                self.timeline.timeline_area.update()
-            # Reset turn button
-            if turn_type == 'TM':
-                self.turn_right_btn.setChecked(False)
-            elif turn_type == 'TK':
-                self.turn_left_btn.setChecked(False)
-            return
 
         # Get selected lane from button group
         selected_lane = None
@@ -1124,19 +992,8 @@ class PhotoPreviewTab(QWidget):
             )
             return
 
-        logging.info(f"PhotoPreviewTab: Final selected_lane='{selected_lane}', calling lane_manager.start_turn")
-        self.lane_manager.start_turn(turn_type, timestamp, selected_lane)
-        self.update_lane_display()
-        # Update timeline to show lane changes
-        if hasattr(self.timeline, 'timeline_area'):
-            self.timeline.timeline_area.update()
-        # Set turn button checked
-        if turn_type == 'TM':
-            self.turn_right_btn.setChecked(True)
-            self.turn_left_btn.setChecked(False)
-        elif turn_type == 'TK':
-            self.turn_left_btn.setChecked(True)
-            self.turn_right_btn.setChecked(False)
+        logging.info(f"PhotoPreviewTab: Final selected_lane='{selected_lane}', calling assign_lane with '{turn_type}{selected_lane}'")
+        self.assign_lane(f'{turn_type}{selected_lane}')
 
     def update_lane_display(self):
         """Update current lane display based on current timestamp"""

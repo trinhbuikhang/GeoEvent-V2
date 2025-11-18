@@ -1163,12 +1163,6 @@ class TimelineWidget(QWidget):
                 pixels_per_second = self.calculate_pixels_per_second(timeline_rect)
                 click_time = self.pixel_to_time(event.position().x(), pixels_per_second, timeline_rect.left())
 
-                # Handle lane marker double-click
-                if self.marker_mode_active and self.is_click_on_lane_change_marker(event.position().toPoint()):
-                    if self.photo_tab and hasattr(self.photo_tab, '_apply_marker_change'):
-                        self.photo_tab._apply_marker_change(self.marker_timestamp)
-                    return
-
                 # Handle event creation completion
                 if self.creating_event:
                     self.new_event_end = click_time
