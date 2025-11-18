@@ -84,8 +84,23 @@ class UserGuideDialog(QDialog):
         <ol>
             <li>Navigate to the time point to code</li>
             <li>Click the corresponding lane type button</li>
-            <li>Timeline will display colors indicating lane type</li>
+            <li>For lane changes, a dialog will appear with instructions</li>
+            <li>Drag the yellow marker on the timeline to select the end time</li>
+            <li>The image preview will update as you drag the marker</li>
+            <li>Release the marker to confirm the lane change</li>
         </ol>
+
+        <h4>Lane Change Feature:</h4>
+        <p>When changing lanes, the application uses an interactive marker system:</p>
+        <ul>
+            <li>Click any lane button (1-4, SK, TK, TM) to initiate lane change</li>
+            <li>A dialog appears explaining how to use the marker</li>
+            <li>The yellow marker appears on the timeline at the current time</li>
+            <li>Drag the marker to select the end time for the lane change</li>
+            <li>The image preview automatically syncs with marker position</li>
+            <li>Release the marker to apply the change</li>
+            <li>Timeline colors update to show the new lane assignment</li>
+        </ul>
 
         <h3>4. Export Data</h3>
         <ul>
@@ -120,6 +135,8 @@ class UserGuideDialog(QDialog):
             <li>Ensure data folder is opened</li>
             <li>Check for overlap with current lane assignments</li>
             <li>Ignore periods don't allow other lane assignments</li>
+            <li>For lane changes: ensure you drag the yellow marker to select end time</li>
+            <li>Lane changes require releasing the marker to apply</li>
         </ul>
 
         <h2>Contact</h2>

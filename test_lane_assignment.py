@@ -116,12 +116,12 @@ def test_assign_lane_overlap_detected():
     # Mock the update_lane_display to track calls
     tab.update_lane_display = Mock()
 
-    # Action: Try to assign overlapping lane
+    # Action: Try to assign lane change (should succeed with smart change)
     tab.assign_lane('2')
 
-    # Assert: Should fail due to overlap
-    # Check that update_lane_display was not called (since assignment failed)
-    tab.update_lane_display.assert_not_called()
+    # Assert: Should succeed with smart change
+    # Check that update_lane_display was called (since assignment succeeded)
+    tab.update_lane_display.assert_called_once()
 
     print("✓ test_assign_lane_overlap_detected passed")
 

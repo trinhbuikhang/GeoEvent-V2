@@ -63,12 +63,26 @@ class LaneManager:
     def assign_lane(self, lane_code: str, timestamp: datetime) -> bool:
         """
         Assign lane at given timestamp
+        For direct lane changes, use smart change logic if existing data present
         Returns True if successful, False if overlap detected
         """
         if not self.plate or not self.fileid_folder:
             logging.warning("No plate or fileid_folder set for lane assignment")
             return False
 
+        # Check if we have existing lane data at this timestamp
+        current_lane_at_time = self.get_lane_at_timestamp(timestamp)
+        
+        # If changing from one lane to another (not from turn/special state)
+        if (current_lane_at_time and 
+            current_lane_at_time in ['1', '2', '3', '4'] and 
+            lane_code in ['1', '2', '3', '4'] and
+            current_lane_at_time != lane_code):
+            
+            # Use smart change logic for existing lane data
+            return self.change_lane_smart(lane_code, timestamp)
+        
+        # Standard assignment logic for new assignments or special cases
         # Check for overlaps (exclude ignore and special periods)
         if self.check_overlap(timestamp, exclude_ignore=True, exclude_special=True):
             return False
@@ -105,41 +119,193 @@ class LaneManager:
         self.has_changes = True
         return True
 
-    def start_turn(self, turn_type: str, timestamp: datetime, selected_lane: str = None):
+    def change_lane_smart(self, new_lane_code: str, timestamp: datetime, user_choice_callback=None, custom_end_time: datetime = None) -> bool:
         """
-        Start a turn period (TK = Turn Left, TM = Turn Right)
-        If already in turn, end current turn first
-        """
-        import logging
-        logging.info(f"LaneManager: start_turn called with turn_type='{turn_type}', selected_lane='{selected_lane}'")
+        Smart lane change with user choice for scope of change
+        Returns True if successful, False otherwise
         
+        user_choice_callback: function that returns 'forward', 'backward', or 'current'
+        """
         if not self.plate or not self.fileid_folder:
-            logging.warning("No plate or fileid_folder set for turn")
+            logging.warning("No plate or fileid_folder set for smart lane change")
+            return False
+
+        # Find the current lane period at this timestamp
+        current_lane_at_time = self.get_lane_at_timestamp(timestamp)
+        if not current_lane_at_time or current_lane_at_time not in ['1', '2', '3', '4']:
+            logging.warning(f"No valid lane found at timestamp {timestamp}")
+            return False
+
+        if current_lane_at_time == new_lane_code:
+            logging.info("Same lane, no change needed")
+            return True
+
+        # Find the lane fix record for this period
+        target_fix = None
+        for fix in self.lane_fixes:
+            if fix.from_time <= timestamp <= fix.to_time and fix.lane == current_lane_at_time:
+                target_fix = fix
+                break
+
+        if not target_fix:
+            logging.error(f"Could not find lane fix record for timestamp {timestamp}")
+            return False
+
+        # Determine change scope based on user choice
+        if user_choice_callback:
+            try:
+                change_scope = user_choice_callback(
+                    current_lane=current_lane_at_time,
+                    new_lane=new_lane_code,
+                    timestamp=timestamp,
+                    period_start=target_fix.from_time,
+                    period_end=target_fix.to_time
+                )
+            except Exception as e:
+                logging.error(f"Error getting user choice: {e}")
+                return False
+        else:
+            # Default: change from timestamp to end of period
+            change_scope = 'forward'
+
+        # Apply the change based on scope
+        if change_scope == 'forward':
+            # Change from timestamp to end of current period
+            self._apply_lane_change_forward(target_fix, new_lane_code, timestamp)
+        elif change_scope == 'backward':
+            # Change from start of current period to timestamp
+            self._apply_lane_change_backward(target_fix, new_lane_code, timestamp)
+        elif change_scope == 'current':
+            # Change entire current period
+            self._apply_lane_change_entire(target_fix, new_lane_code)
+        elif change_scope == 'custom' and custom_end_time:
+            # Change from timestamp to custom_end_time
+            self._apply_lane_change_custom(target_fix, new_lane_code, timestamp, custom_end_time)
+        else:
+            logging.error(f"Invalid change scope: {change_scope}")
+            return False
+
+        self.has_changes = True
+        return True
+
+    def _apply_lane_change_forward(self, target_fix, new_lane_code: str, timestamp: datetime):
+        """Change lane from timestamp to end of period"""
+        # Split the current period at timestamp
+        # Keep original period until timestamp
+        # Create new period from timestamp to original end
+        
+        original_end = target_fix.to_time
+        
+        # End current period at timestamp
+        target_fix.to_time = timestamp
+        
+        # Create new period with new lane
+        new_fix = LaneFix(
+            plate=self.plate,
+            from_time=timestamp,
+            to_time=original_end,
+            lane=new_lane_code,
+            file_id=self.fileid_folder.name
+        )
+        self.lane_fixes.append(new_fix)
+        
+        # Update current_lane if this affects the current state
+        if timestamp <= datetime.now(timezone.utc) <= original_end:
+            self.current_lane = new_lane_code
+
+    def _apply_lane_change_backward(self, target_fix, new_lane_code: str, timestamp: datetime):
+        """Change lane from start of period to timestamp"""
+        # Change the lane of the current period from start to timestamp
+        # Create new period from timestamp to original end with original lane
+        
+        original_lane = target_fix.lane
+        original_end = target_fix.to_time
+        
+        # Change current period lane
+        target_fix.lane = new_lane_code
+        target_fix.to_time = timestamp
+        
+        # Create continuation period with original lane
+        new_fix = LaneFix(
+            plate=self.plate,
+            from_time=timestamp,
+            to_time=original_end,
+            lane=original_lane,
+            file_id=self.fileid_folder.name
+        )
+        self.lane_fixes.append(new_fix)
+
+    def _apply_lane_change_entire(self, target_fix, new_lane_code: str):
+        """Change entire period to new lane"""
+        target_fix.lane = new_lane_code
+        
+        # Update current_lane if this period is current
+        now = datetime.now(timezone.utc)
+        if target_fix.from_time <= now <= target_fix.to_time:
+            self.current_lane = new_lane_code
+
+    def _apply_lane_change_custom(self, target_fix, new_lane_code: str, timestamp: datetime, custom_end_time: datetime):
+        """Change lane from timestamp to custom_end_time"""
+        # Similar to forward change but with custom end time
+        # Split the current period at timestamp and custom_end_time
+        
+        original_end = target_fix.to_time
+        
+        # End current period at timestamp
+        target_fix.to_time = timestamp
+        
+        # Create new period with new lane from timestamp to custom_end_time
+        new_fix = LaneFix(
+            plate=self.plate,
+            from_time=timestamp,
+            to_time=custom_end_time,
+            lane=new_lane_code,
+            file_id=self.fileid_folder.name
+        )
+        self.lane_fixes.append(new_fix)
+        
+        # If there's remaining time after custom_end_time, create continuation with original lane
+        if custom_end_time < original_end:
+            continuation_fix = LaneFix(
+                plate=self.plate,
+                from_time=custom_end_time,
+                to_time=original_end,
+                lane=target_fix.lane,  # Original lane
+                file_id=self.fileid_folder.name
+            )
+            self.lane_fixes.append(continuation_fix)
+
+    def start_turn(self, turn_type: str, timestamp: datetime, selected_lane: str):
+        """
+        Start turn period with given turn type and selected lane
+        turn_type: 'TM' (right turn) or 'TK' (left turn)
+        selected_lane: '1', '2', '3', or '4'
+        """
+        if not self.plate or not self.fileid_folder:
+            logging.warning("No plate or fileid_folder set for turn start")
             return
 
-        # If already in turn, end it first
+        # End any active turn first
         if self.turn_active:
-            logging.info("LaneManager: ending current turn before starting new turn")
             self.end_turn(timestamp)
-        
-        self.turn_start_lane = self.current_lane
-        self.turn_active = True
 
-        # End current lane period
+        # End current lane period if exists
         if self.current_lane and self.lane_fixes:
             self.lane_fixes[-1].to_time = timestamp
 
-        # Start turn period with combined code (TK1, TM2, etc.)
-        combined_lane = f"{turn_type}{selected_lane}" if selected_lane else turn_type
+        # Start turn period
+        turn_lane = f"{turn_type}{selected_lane}"
         lane_fix = LaneFix(
             plate=self.plate,
             from_time=timestamp,
-            to_time=timestamp,  # Will be extended
-            lane=combined_lane,
+            to_time=timestamp,  # Will be extended until end_turn
+            lane=turn_lane,
             file_id=self.fileid_folder.name
         )
         self.lane_fixes.append(lane_fix)
-        self.current_lane = combined_lane
+        self.current_lane = turn_lane
+        self.turn_active = True
+        self.turn_start_lane = selected_lane  # Store the lane we're turning from
 
         self.has_changes = True
 
@@ -503,6 +669,23 @@ class LaneManager:
             'turn_active': self.turn_active,
             'turn_start_lane': self.turn_start_lane
         }
+
+    def get_lane_fixes(self):
+        """Get all lane fixes for timeline display"""
+        return self.lane_fixes
+
+    def get_lane_color(self, lane_code: str) -> str:
+        """Get color for lane display"""
+        color_map = {
+            '1': '#4CAF50',  # Green
+            '2': '#2196F3',  # Blue
+            '3': '#FF9800',  # Orange
+            '4': '#9C27B0',  # Purple
+            'SK': '#FF5722', # Deep Orange
+            'TK': '#795548', # Brown
+            'TM': '#607D8B', # Blue Grey
+        }
+        return color_map.get(lane_code, '#9E9E9E')  # Default gray
 
     @classmethod
     def from_dict(cls, data: dict) -> 'LaneManager':

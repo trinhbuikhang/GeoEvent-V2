@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import List, Optional
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QSlider, QFrame, QScrollArea, QGroupBox, QButtonGroup, QSplitter, QSizePolicy, QMessageBox, QComboBox
+    QSlider, QFrame, QScrollArea, QGroupBox, QButtonGroup, QSplitter, QSizePolicy, QMessageBox, QComboBox, QDialog, QRadioButton, QDialogButtonBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
 from PyQt6.QtGui import QPixmap, QImage, QPainter, QPen, QBrush
@@ -22,6 +22,49 @@ from ..utils.data_loader import DataLoader
 from ..utils.image_utils import extract_image_metadata
 from ..utils.export_manager import ExportManager
 from .timeline_widget import TimelineWidget
+
+class LaneChangeDialog(QDialog):
+    """Dialog for choosing lane change scope"""
+    
+    def __init__(self, current_lane, new_lane, timestamp, period_start, period_end, parent=None):
+        super().__init__(parent)
+        self.current_lane = current_lane
+        self.new_lane = new_lane
+        self.timestamp = timestamp
+        self.period_start = period_start
+        self.period_end = period_end
+        self.selected_scope = None
+        
+        self.setup_ui()
+    
+    def setup_ui(self):
+        self.setWindowTitle("Lane Change Mode")
+        self.setModal(True)
+        self.resize(500, 200)
+        
+        layout = QVBoxLayout(self)
+        
+        # Description
+        desc_label = QLabel(
+            f"Change from Lane {self.current_lane} to Lane {self.new_lane} at {self.timestamp.strftime('%H:%M:%S')}\n\n"
+            f"• Drag the yellow marker on the timeline to select the end time\n"
+            f"• The change will apply from {self.timestamp.strftime('%H:%M:%S')} to the marker position\n"
+            f"• Release the marker to confirm the change\n"
+            f"• Click 'Cancel' to exit lane change mode"
+        )
+        desc_label.setWordWrap(True)
+        desc_label.setStyleSheet("font-size: 11px; line-height: 1.4;")
+        layout.addWidget(desc_label)
+        
+        # Buttons
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+    
+    def get_selected_scope(self):
+        """Return the selected scope: always 'marker'"""
+        return 'marker'
 
 class PhotoPreviewTab(QWidget):
     """
@@ -49,8 +92,16 @@ class PhotoPreviewTab(QWidget):
 
         self.image_cache = {}  # Simple cache for loaded images
         self.events_modified = False  # Track if events have been modified
-        self.current_metadata = {}
-        self.scroll_area = None  # Reference to scroll area for image display
+        self.marker_mode_active = False
+        self.marker_new_lane = None
+        self.marker_timestamp = None
+        self.marker_period_start = None
+        self.marker_period_end = None
+
+        # Lane change mode using current position marker
+        self.lane_change_mode_active = False
+        self.lane_change_new_lane = None
+        self.lane_change_start_timestamp = None
 
         # Global lane button group (exclusive)
         self.lane_buttons = QButtonGroup(self)
@@ -153,6 +204,15 @@ class PhotoPreviewTab(QWidget):
         nav_group.setLayout(nav_layout)
         bottom_layout.addWidget(nav_group)
 
+        # Marker control buttons (hidden by default)
+        self.marker_group = QGroupBox("Lane Change Marker")
+        self.marker_group.setStyleSheet("QGroupBox { border: 2px solid black; padding: 5px; }")
+        marker_layout = QHBoxLayout()
+        self.setup_marker_buttons(marker_layout)
+        self.marker_group.setLayout(marker_layout)
+        self.marker_group.setVisible(False)  # Hidden by default
+        bottom_layout.addWidget(self.marker_group)
+
         main_layout.addLayout(bottom_layout)
 
         # Photo slider
@@ -202,6 +262,42 @@ class PhotoPreviewTab(QWidget):
         self.playback_timer = QTimer()
         self.playback_timer.timeout.connect(self.next_image)
         self.is_playing = False
+
+    def setup_marker_buttons(self, parent_layout):
+        """Setup marker control buttons"""
+        self.apply_marker_btn = QPushButton("Apply Change")
+        self.apply_marker_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: 1px solid #388E3C;
+                padding: 8px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+        self.apply_marker_btn.clicked.connect(self._apply_marker_change_from_button)
+        self.apply_marker_btn.setMinimumHeight(40)
+        parent_layout.addWidget(self.apply_marker_btn)
+
+        self.cancel_marker_btn = QPushButton("Cancel")
+        self.cancel_marker_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #F44336;
+                color: white;
+                border: 1px solid #B71C1C;
+                padding: 8px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #E53935;
+            }
+        """)
+        self.cancel_marker_btn.clicked.connect(self._exit_marker_mode)
+        self.cancel_marker_btn.setMinimumHeight(40)
+        parent_layout.addWidget(self.cancel_marker_btn)
 
     def setup_lane_controls(self, parent_layout):
         """Setup lane controls with improved layout"""
@@ -389,6 +485,7 @@ class PhotoPreviewTab(QWidget):
     def connect_signals(self):
         """Connect signal handlers"""
         self.timeline.position_clicked.connect(self.sync_to_timeline_position)
+        self.timeline.lane_change_position_changed.connect(self.on_lane_change_position_changed)
         self.timeline.event_modified.connect(self.on_event_modified)
         self.timeline.event_deleted.connect(self.on_event_deleted)
         self.timeline.event_created.connect(self.on_event_created)
@@ -428,6 +525,18 @@ class PhotoPreviewTab(QWidget):
         # Force update timeline area
         if hasattr(self.timeline, 'timeline_area'):
             self.timeline.timeline_area.update()
+
+    def on_lane_change_position_changed(self, timestamp: datetime):
+        """Handle lane change position changed during drag"""
+        logging.debug(f"PhotoPreviewTab: Lane change position changed to {timestamp}")
+        # Update the lane change end timestamp
+        if hasattr(self, 'lane_change_start_timestamp') and self.lane_change_start_timestamp:
+            # Store the dragged timestamp for later use in lane change application
+            self.lane_change_end_timestamp = timestamp
+            logging.debug(f"PhotoPreviewTab: Lane change range: {self.lane_change_start_timestamp} to {timestamp}")
+
+        # Sync image preview to the marker position
+        self.sync_to_timeline_position(timestamp, (None, None))
 
     def load_fileid(self, fileid_folder):
         """Load data for a specific FileID"""
@@ -693,7 +802,7 @@ class PhotoPreviewTab(QWidget):
             self.is_playing = True
 
     def assign_lane(self, lane_code: str):
-        """Assign lane at current position"""
+        """Assign lane at current position with smart change logic"""
         logging.info(f"PhotoPreviewTab: assign_lane called with lane_code='{lane_code}'")
         if not self.current_metadata or 'timestamp' not in self.current_metadata:
             logging.warning("PhotoPreviewTab: assign_lane failed - no current metadata")
@@ -705,8 +814,22 @@ class PhotoPreviewTab(QWidget):
 
         timestamp = self.current_metadata['timestamp']
 
-        success = self.lane_manager.assign_lane(lane_code, timestamp)
-        logging.info(f"PhotoPreviewTab: lane_manager.assign_lane returned success={success}")
+        # Check if this is a smart change (changing from one lane to another)
+        current_lane_at_time = self.lane_manager.get_lane_at_timestamp(timestamp)
+        is_smart_change = (
+            current_lane_at_time and 
+            current_lane_at_time in ['1', '2', '3', '4'] and 
+            lane_code in ['1', '2', '3', '4'] and
+            current_lane_at_time != lane_code
+        )
+
+        if is_smart_change:
+            # Use smart change logic
+            success = self._perform_smart_lane_change(lane_code, timestamp)
+        else:
+            # Use standard assignment
+            success = self.lane_manager.assign_lane(lane_code, timestamp)
+            logging.info(f"PhotoPreviewTab: standard lane_manager.assign_lane returned success={success}")
 
         if success:
             self.update_lane_display()
@@ -718,14 +841,136 @@ class PhotoPreviewTab(QWidget):
                 self.turn_right_btn.setChecked(False)
                 self.turn_left_btn.setChecked(False)
         else:
-            logging.warning("PhotoPreviewTab: assign_lane failed - overlap detected")
+            logging.warning("PhotoPreviewTab: assign_lane failed")
             QMessageBox.warning(
                 self, "Lane Assignment Failed",
                 f"Cannot assign Lane {lane_code} at this time.\n\n"
-                f"Reason: Overlapping with existing lane assignment.\n\n"
+                f"Reason: Lane assignment failed.\n\n"
                 f"Time: {timestamp.strftime('%H:%M:%S')}\n"
                 f"Plate: {self.current_metadata.get('plate', 'Unknown')}"
             )
+
+    def _perform_smart_lane_change(self, new_lane_code: str, timestamp: datetime) -> bool:
+        """Perform smart lane change with user choice dialog"""
+        # Find current lane period
+        current_lane = self.lane_manager.get_lane_at_timestamp(timestamp)
+        
+        # Find the lane fix record
+        target_fix = None
+        for fix in self.lane_manager.lane_fixes:
+            if fix.from_time <= timestamp <= fix.to_time and fix.lane == current_lane:
+                target_fix = fix
+                break
+        
+        if not target_fix:
+            logging.error("Could not find target lane fix for smart change")
+            return False
+        
+        # Show choice dialog
+        dialog = LaneChangeDialog(
+            current_lane=current_lane,
+            new_lane=new_lane_code,
+            timestamp=timestamp,
+            period_start=target_fix.from_time,
+            period_end=target_fix.to_time,
+            parent=self
+        )
+        
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            # Always enable lane change mode using current position marker
+            self._enable_lane_change_mode(new_lane_code, timestamp)
+            return True  # Don't apply change yet, wait for marker confirmation
+        else:
+            logging.info("PhotoPreviewTab: Smart lane change cancelled by user")
+            return False
+
+    def _enable_lane_change_mode(self, new_lane_code: str, timestamp: datetime):
+        """Enable lane change mode using current position marker"""
+        self.lane_change_mode_active = True
+        self.lane_change_new_lane = new_lane_code
+        self.lane_change_start_timestamp = timestamp
+        self.lane_change_end_timestamp = timestamp  # Initial end time same as start
+        
+        # Enable lane change mode on timeline
+        self.timeline.enable_lane_change_mode(new_lane_code, timestamp)
+        
+        # Show marker buttons
+        self._update_marker_buttons_visibility()
+
+    def _exit_marker_mode(self):
+        """Exit marker mode without applying changes"""
+        self.marker_mode_active = False
+        self.marker_new_lane = None
+        self.marker_timestamp = None
+        self.marker_period_start = None
+        self.marker_period_end = None
+        
+        # Disable marker on timeline
+        self.timeline.disable_marker_mode()
+        
+        # Hide marker buttons
+        self._update_marker_buttons_visibility()
+
+    def _exit_lane_change_mode(self):
+        """Exit lane change mode without applying changes"""
+        self.lane_change_mode_active = False
+        self.lane_change_new_lane = None
+        self.lane_change_start_timestamp = None
+        
+        # Disable lane change mode on timeline
+        self.timeline.disable_lane_change_mode()
+        
+        # Hide marker buttons
+        self._update_marker_buttons_visibility()
+
+    def _apply_marker_change_from_button(self):
+        """Apply marker change from button click"""
+        if self.marker_mode_active and self.marker_timestamp:
+            self._apply_marker_change(self.marker_timestamp)
+
+    def _apply_lane_change(self):
+        """Apply lane change using dragged marker range"""
+        if not self.lane_change_mode_active:
+            logging.warning("PhotoPreviewTab: _apply_lane_change called but lane change mode not active")
+            return
+
+        if not hasattr(self, 'lane_change_start_timestamp') or not hasattr(self, 'lane_change_end_timestamp'):
+            logging.warning("PhotoPreviewTab: _apply_lane_change called but timestamps not set")
+            return
+
+        start_time = self.lane_change_start_timestamp
+        end_time = self.lane_change_end_timestamp
+
+        if start_time >= end_time:
+            logging.warning("PhotoPreviewTab: Invalid time range for lane change")
+            QMessageBox.warning(self, "Invalid Range", "End time must be after start time.")
+            return
+
+        # Apply the lane change
+        success = self.lane_manager.change_lane_smart(
+            self.lane_change_new_lane,
+            start_time,
+            lambda **kwargs: 'custom',  # Custom range selected by dragging
+            custom_end_time=end_time
+        )
+
+        if success:
+            logging.info(f"PhotoPreviewTab: Lane change applied - {self.lane_change_new_lane} from {start_time} to {end_time}")
+            self.update_lane_display()
+            # Update timeline to show lane changes
+            if hasattr(self.timeline, 'timeline_area'):
+                self.timeline.timeline_area.update()
+            QMessageBox.information(self, "Success", f"Lane changed to {self.lane_change_new_lane} for the selected time range.")
+        else:
+            logging.error("PhotoPreviewTab: Lane change failed")
+            QMessageBox.warning(self, "Error", "Failed to apply lane change.")
+
+        # Exit lane change mode
+        self._exit_lane_change_mode()
+
+    def _update_marker_buttons_visibility(self):
+        """Update marker buttons visibility based on marker mode"""
+        self.marker_group.setVisible(self.marker_mode_active or self.lane_change_mode_active)
 
     def assign_sk(self):
         """Assign shoulder lane (SK) at current position"""

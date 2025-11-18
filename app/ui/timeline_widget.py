@@ -91,6 +91,7 @@ class TimelineWidget(QWidget):
 
     # Signals
     position_clicked = pyqtSignal(datetime, tuple)  # timestamp, (lat, lon)
+    lane_change_position_changed = pyqtSignal(datetime)  # timestamp for lane change
     event_modified = pyqtSignal(str, dict)  # event_id, changes
     event_deleted = pyqtSignal(str)  # event_id
     event_created = pyqtSignal(object)  # Event object
@@ -122,6 +123,11 @@ class TimelineWidget(QWidget):
         self.selected_event: Optional[Event] = None
         self.drag_handle = None  # 'start', 'end', or 'move'
         self.dragging_marker = False
+
+        # Marker mode for lane changes
+        self.lane_change_mode_active = False
+        self.lane_change_new_lane: Optional[str] = None
+        self.lane_change_start_timestamp: Optional[datetime] = None
 
         # Event creation state
         self.creating_event = False
@@ -297,6 +303,23 @@ class TimelineWidget(QWidget):
                         self.view_end_time = max_event_time
                         self.view_start_time = self.view_end_time - current_span
 
+        self.timeline_area.update()
+
+    def enable_lane_change_mode(self, new_lane: str, start_timestamp: datetime):
+        """Enable lane change mode using current position marker"""
+        self.lane_change_mode_active = True
+        self.lane_change_new_lane = new_lane
+        self.lane_change_start_timestamp = self.ensure_timezone(start_timestamp)
+        # Set current position to start timestamp for visual feedback
+        self.current_position = self.lane_change_start_timestamp
+        self.timeline_area.update()
+
+    def disable_lane_change_mode(self):
+        """Disable lane change mode"""
+        self.lane_change_mode_active = False
+        self.lane_change_new_lane = None
+        self.lane_change_start_timestamp = None
+        # Keep current_position as is - it might be useful for normal operation
         self.timeline_area.update()
 
     def set_image_time_range(self, start_time: datetime, end_time: datetime, start_coords: tuple = None, end_coords: tuple = None):
@@ -876,6 +899,39 @@ class TimelineWidget(QWidget):
         else:
             logging.debug(f"TimelineWidget: Marker is outside visible area at x={x:.1f} (visible range: {rect.left()} to {rect.right()})")
 
+    def paint_marker(self, painter: QPainter, rect: QRect, pixels_per_second: float):
+        """Paint the lane change marker"""
+        if not self.marker_timestamp:
+            return
+
+        x = self.time_to_pixel(self.marker_timestamp, pixels_per_second, rect.left())
+        if rect.left() <= x <= rect.right():
+            # Draw marker line
+            painter.setPen(QPen(QColor('#FF6B35'), 3))  # Orange marker
+            painter.drawLine(int(x), rect.top(), int(x), rect.bottom())
+
+            # Draw marker handle (circle at top)
+            painter.setPen(QPen(QColor('#FF6B35'), 2))
+            painter.setBrush(QBrush(QColor('#FF6B35')))
+            painter.drawEllipse(int(x) - 8, rect.top() + 2, 16, 16)
+
+            # Draw label
+            painter.setPen(QColor('#FFFFFF'))
+            font = painter.font()
+            font.setPointSize(8)
+            font.setBold(True)
+            painter.setFont(font)
+            painter.drawText(int(x) - 30, rect.top() + 35, "LANE CHANGE")
+
+            # Draw drag instruction
+            font.setPointSize(7)
+            font.setBold(False)
+            painter.setFont(font)
+            painter.setPen(QColor('#FF6B35'))
+            painter.drawText(int(x) - 40, rect.top() + 50, "Drag to set end time")
+        else:
+            logging.debug(f"TimelineWidget: Lane change marker is outside visible area at x={x:.1f}")
+
     def paint_new_event(self, painter: QPainter, rect: QRect, pixels_per_second: float):
         """Paint the new event marker being created"""
         if not self.new_event_start or not self.new_event_end:
@@ -980,12 +1036,18 @@ class TimelineWidget(QWidget):
             self.dragging_marker = True
             self.drag_start_pos = event.position().toPoint()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)  # Set cursor immediately when starting drag
-            # Position click
-            pixels_per_second = self.calculate_pixels_per_second(timeline_rect)
-            click_time = self.pixel_to_time(event.position().x(), pixels_per_second, timeline_rect.left())
-            gps_coords = (None, None)  # TODO: Get GPS coords from GPS data
-            self.position_clicked.emit(click_time, gps_coords)
-            return
+
+            if self.lane_change_mode_active:
+                # In lane change mode, dragging the current position marker for lane change
+                logging.debug("TimelineWidget: Starting lane change drag")
+                return
+            else:
+                # Position click
+                pixels_per_second = self.calculate_pixels_per_second(timeline_rect)
+                click_time = self.pixel_to_time(event.position().x(), pixels_per_second, timeline_rect.left())
+                gps_coords = (None, None)  # TODO: Get GPS coords from GPS data
+                self.position_clicked.emit(click_time, gps_coords)
+                return
 
         if not timeline_rect.contains(event.position().toPoint()):
             logging.debug("TimelineWidget: Click outside timeline rect")
@@ -1101,6 +1163,12 @@ class TimelineWidget(QWidget):
                 pixels_per_second = self.calculate_pixels_per_second(timeline_rect)
                 click_time = self.pixel_to_time(event.position().x(), pixels_per_second, timeline_rect.left())
 
+                # Handle lane marker double-click
+                if self.marker_mode_active and self.is_click_on_lane_change_marker(event.position().toPoint()):
+                    if self.photo_tab and hasattr(self.photo_tab, '_apply_marker_change'):
+                        self.photo_tab._apply_marker_change(self.marker_timestamp)
+                    return
+
                 # Handle event creation completion
                 if self.creating_event:
                     self.new_event_end = click_time
@@ -1141,12 +1209,28 @@ class TimelineWidget(QWidget):
 
         new_time = self.pixel_to_time(event.position().x(), pixels_per_second, timeline_rect.left())
 
-        # Update current position
+        # Update current position for visual feedback
         self.current_position = new_time
         self.timeline_area.update()
 
-        # Emit position changed for realtime sync
-        self.position_clicked.emit(new_time, (None, None))
+        if self.lane_change_mode_active:
+            # In lane change mode, emit lane change position changed
+            self.lane_change_position_changed.emit(new_time)
+        else:
+            # Emit position changed for realtime sync
+            self.position_clicked.emit(new_time, (None, None))
+
+    def handle_drag_lane_marker(self, event):
+        """Handle dragging lane change marker"""
+        rect = self.timeline_area.rect()
+        timeline_rect = QRect(0, TIMELINE_TOP_MARGIN, rect.width(), rect.height() - CHAINAGE_SCALE_HEIGHT)
+        pixels_per_second = self.calculate_pixels_per_second(timeline_rect)
+
+        new_time = self.pixel_to_time(event.position().x(), pixels_per_second, timeline_rect.left())
+
+        # Update marker position
+        self.marker_timestamp = new_time
+        self.timeline_area.update()
 
     def handle_drag(self, event):
         """Handle dragging events"""
@@ -1189,6 +1273,9 @@ class TimelineWidget(QWidget):
             self.drag_handle = None
         if self.dragging_marker:
             self.dragging_marker = False
+            # Apply lane change when marker is released in lane change mode
+            if self.lane_change_mode_active and self.photo_tab and hasattr(self.photo_tab, '_apply_lane_change'):
+                self.photo_tab._apply_lane_change()
             # Reset cursor after dragging
             self.update_cursor(event)
 
@@ -1278,6 +1365,30 @@ class TimelineWidget(QWidget):
         arrow_rect = QRect(int(x - arrow_size//2), arrow_y, arrow_size, arrow_size)
         result = arrow_rect.contains(pos)
         logging.debug(f"TimelineWidget: Arrow rect {arrow_rect}, click at ({px}, {py}), inside={result}")
+        return result
+
+    def is_click_on_lane_change_marker(self, pos: QPoint) -> bool:
+        """Check if click position is on the current position marker when in lane change mode"""
+        if not self.lane_change_mode_active or not self.current_position:
+            return False
+
+        rect = self.timeline_area.rect()
+        timeline_rect = QRect(0, TIMELINE_TOP_MARGIN, rect.width(), rect.height() - CHAINAGE_SCALE_HEIGHT)
+        pixels_per_second = self.calculate_pixels_per_second(timeline_rect)
+
+        x = self.time_to_pixel(self.current_position, pixels_per_second, timeline_rect.left())
+        if not (rect.left() <= x <= rect.right()):
+            return False
+
+        # Check if click is within the current position marker bounding box
+        arrow_y = 0  # Match paint position
+        arrow_size = 50  # Match paint size
+
+        # Check if click is within the arrow bounding box only (not the entire line)
+        px, py = pos.x(), pos.y()
+        arrow_rect = QRect(int(x - arrow_size//2), arrow_y, arrow_size, arrow_size)
+        result = arrow_rect.contains(pos)
+        logging.debug(f"TimelineWidget: Lane change marker rect {arrow_rect}, click at ({px}, {py}), inside={result}")
         return result
 
     def calculate_pixels_per_second(self, timeline_rect: QRect) -> float:
