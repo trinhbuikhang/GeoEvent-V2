@@ -21,6 +21,8 @@ from .ui.photo_preview_tab import PhotoPreviewTab
 from .utils.settings_manager import SettingsManager
 from .utils.fileid_manager import FileIDManager
 from .utils.user_guide import show_user_guide
+from .core.memory_manager import MemoryManager
+from .core.autosave_manager import AutoSaveManager
 
 class MainWindow(QMainWindow):
     """
