@@ -20,10 +20,7 @@ from PyQt6.QtWidgets import QApplication
 from .ui.photo_preview_tab import PhotoPreviewTab
 from .utils.settings_manager import SettingsManager
 from .utils.fileid_manager import FileIDManager
-from .core.memory_manager import MemoryManager
-from .core.autosave_manager import AutoSaveManager
-
-import os
+from .utils.user_guide import show_user_guide
 
 class MainWindow(QMainWindow):
     """
@@ -144,6 +141,11 @@ class MainWindow(QMainWindow):
 
         # Help menu
         help_menu = menubar.addMenu("Help")
+        user_guide_action = QAction("User Guide", self)
+        user_guide_action.triggered.connect(self.show_user_guide)
+        help_menu.addAction(user_guide_action)
+
+        help_menu.addSeparator()
         about_action = QAction("About", self)
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
@@ -522,7 +524,7 @@ class MainWindow(QMainWindow):
                         from_time_str,
                         to_time_str,
                         fix.lane,
-                        '',  # Ignore
+                        '1' if fix.ignore else '',  # Ignore
                         '',  # RegionID
                         '',  # RoadID
                         'N'  # Travel direction
@@ -534,3 +536,16 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logging.error(f"Failed to save merged lane fixes: {str(e)}")
             return False
+
+    def show_user_guide(self):
+        """Show user guide dialog"""
+        show_user_guide(self)
+
+    def show_about(self):
+        """Show about dialog"""
+        QMessageBox.about(
+            self, "About GeoEvent",
+            "GeoEvent v2.0.0\n\n"
+            "Road Survey Event Coding Application\n\n"
+            "Built with PyQt6 and Python"
+        )
