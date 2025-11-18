@@ -256,9 +256,49 @@ class PhotoPreviewTab(QWidget):
         self.position_label.setStyleSheet("font-weight: bold; font-size: 14px;")
         parent_layout.addWidget(self.position_label)
 
+        # Speed control radio buttons
+        speed_layout = QHBoxLayout()
+        speed_layout.setSpacing(5)
+        speed_label = QLabel("Speed:")
+        speed_label.setStyleSheet("font-weight: bold;")
+        speed_layout.addWidget(speed_label)
+
+        self.speed_group = QButtonGroup()
+        self.slow_radio = QRadioButton("Slow")
+        self.normal_radio = QRadioButton("Normal")
+        self.fast_radio = QRadioButton("Fast")
+
+        self.speed_group.addButton(self.slow_radio)
+        self.speed_group.addButton(self.normal_radio)
+        self.speed_group.addButton(self.fast_radio)
+
+        # Set Normal as default
+        self.normal_radio.setChecked(True)
+        self.playback_speed = 100  # milliseconds
+
+        self.speed_group.buttonClicked.connect(self.on_speed_changed)
+
+        speed_layout.addWidget(self.slow_radio)
+        speed_layout.addWidget(self.normal_radio)
+        speed_layout.addWidget(self.fast_radio)
+
+        parent_layout.addLayout(speed_layout)
+
         self.playback_timer = QTimer()
         self.playback_timer.timeout.connect(self.next_image)
         self.is_playing = False
+
+    def on_speed_changed(self, button):
+        """Handle speed radio button change"""
+        if button == self.slow_radio:
+            self.playback_speed = 200  # 0.5 seconds
+        elif button == self.normal_radio:
+            self.playback_speed = 100  # 0.25 seconds
+        elif button == self.fast_radio:
+            self.playback_speed = 50   # 0.05 seconds
+        # Update timer interval if currently playing
+        if self.is_playing:
+            self.playback_timer.setInterval(self.playback_speed)
 
     def setup_lane_controls(self, parent_layout):
         """Setup lane controls with improved layout"""
@@ -758,7 +798,7 @@ class PhotoPreviewTab(QWidget):
             self.play_btn.setText("▶ Play")
             self.is_playing = False
         else:
-            self.playback_timer.start(1000)
+            self.playback_timer.start(self.playback_speed)
             self.play_btn.setText("⏸ Pause")
             self.is_playing = True
 

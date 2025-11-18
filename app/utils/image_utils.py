@@ -37,10 +37,11 @@ def extract_image_metadata(image_path: str) -> Dict:
             timestamp_str = timestamp_match.group(1)
             # Convert YYYY-MM-DD-HH-MM-SS-mmm to datetime (handle 1, 2 or 3 digit milliseconds)
             parts = timestamp_str.split('-')
-            if len(parts[-1]) == 1:
-                parts[-1] = parts[-1] + '00'  # Pad to 3 digits
-            elif len(parts[-1]) == 2:
-                parts[-1] = parts[-1] + '0'   # Pad to 3 digits
+            ms_str = parts[-1]
+            # Convert milliseconds to microseconds (pad to 6 digits)
+            ms_value = int(ms_str)
+            microseconds = ms_value * 1000  # Convert ms to μs
+            parts[-1] = f'{microseconds:06d}'  # Format as 6-digit microseconds
             timestamp_str = '-'.join(parts)
             dt = datetime.strptime(timestamp_str, '%Y-%m-%d-%H-%M-%S-%f').replace(tzinfo=timezone.utc)
             metadata['timestamp'] = dt
