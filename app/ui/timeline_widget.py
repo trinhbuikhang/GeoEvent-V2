@@ -1481,9 +1481,10 @@ class TimelineWidget(QWidget):
         if not self.creating_event or not self.new_event_start or not self.new_event_end or not self.new_event_name:
             return
 
-        # Ensure start time is before end time
-        if self.new_event_start >= self.new_event_end:
-            self.new_event_end = self.new_event_start + timedelta(seconds=DEFAULT_EVENT_DURATION)
+        # Ensure start time is before end time, swap if dragged backwards
+        if self.new_event_start > self.new_event_end:
+            # Swap start and end times
+            self.new_event_start, self.new_event_end = self.new_event_end, self.new_event_start
 
         # Create new event
         from ..models.event_model import Event

@@ -76,17 +76,6 @@ class EventEditor(QDialog):
         """Get event data from form"""
         try:
             event_name = self.name_combo.currentText()
-            start_time = self.start_time_edit.dateTime().toPyDateTime().replace(tzinfo=timezone.utc)
-            end_time = self.end_time_edit.dateTime().toPyDateTime().replace(tzinfo=timezone.utc)
-            start_chainage = float(self.start_chainage_edit.text())
-            end_chainage = float(self.end_chainage_edit.text())
-
-            # Validation
-            if start_time >= end_time:
-                raise ValueError("Start time must be before end time")
-
-            if start_chainage >= end_chainage:
-                raise ValueError("Start chainage must be less than end chainage")
 
             # Add new event name to settings if not exists
             event_names = self.settings_manager.get_setting('event_names', [])
@@ -94,12 +83,8 @@ class EventEditor(QDialog):
                 event_names.append(event_name)
                 self.settings_manager.save_setting('event_names', event_names)
 
-            # Update event
+            # Update event name only
             self.event.event_name = event_name
-            self.event.start_time = start_time
-            self.event.end_time = end_time
-            self.event.start_chainage = start_chainage
-            self.event.end_chainage = end_chainage
 
             return self.event
 
