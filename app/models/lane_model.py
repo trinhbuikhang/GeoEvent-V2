@@ -327,8 +327,8 @@ class LaneManager:
         return False
 
     def get_lane_fixes(self) -> List[LaneFix]:
-        """Get all lane fixes"""
-        return self.lane_fixes.copy()
+        """Get all lane fixes sorted by time"""
+        return sorted(self.lane_fixes, key=lambda x: x.from_time)
 
     def get_lane_at_timestamp(self, timestamp: datetime) -> str:
         """Get the lane code active at the given timestamp"""
@@ -535,8 +535,8 @@ class LaneManager:
         }
 
     def get_lane_fixes(self):
-        """Get all lane fixes for timeline display"""
-        return self.lane_fixes
+        """Get all lane fixes for timeline display, sorted by time"""
+        return sorted(self.lane_fixes, key=lambda x: x.from_time)
 
     def get_lane_color(self, lane_code: str) -> str:
         """Get color for lane display"""

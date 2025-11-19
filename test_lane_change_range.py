@@ -60,7 +60,7 @@ def test_lane_change_range():
     for fix in manager.lane_fixes:
         print(f"  {fix.from_time.strftime('%H:%M')} - {fix.to_time.strftime('%H:%M')}: Lane {fix.lane}")
 
-    # Sort by from_time for comparison
+    # Sort by from_time for comparison (same as get_lane_fixes())
     sorted_fixes = sorted(manager.lane_fixes, key=lambda x: x.from_time)
     # 10:00-10:15: Lane 1
     # 10:15-10:30: Lane 2
@@ -78,7 +78,12 @@ def test_lane_change_range():
     for start, end, lane in expected:
         print(f"  {start} - {end}: Lane {lane}")
 
+    print("\nSorted resulting lane data:")
+    for fix in sorted_fixes:
+        print(f"  {fix.from_time.strftime('%H:%M')} - {fix.to_time.strftime('%H:%M')}: Lane {fix.lane}")
+
     # Check if result matches expected
+    print(f"\nChecking: {len(sorted_fixes)} periods vs expected {len(expected)}")
     if len(sorted_fixes) != len(expected):
         print(f"\n❌ FAIL: Expected {len(expected)} periods, got {len(sorted_fixes)}")
         return False
@@ -88,6 +93,8 @@ def test_lane_change_range():
         act_start = fix.from_time.strftime('%H:%M')
         act_end = fix.to_time.strftime('%H:%M')
         act_lane = fix.lane
+
+        print(f"Period {i+1}: Expected {exp_start}-{exp_end} Lane {exp_lane}, Actual {act_start}-{act_end} Lane {act_lane}")
 
         if act_start != exp_start or act_end != exp_end or act_lane != exp_lane:
             print(f"\n❌ FAIL: Period {i+1}")
