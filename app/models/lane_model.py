@@ -590,22 +590,52 @@ class LaneManager:
         new_fixes.append(new_lane_fix)
         
         # Handle the end part - keep original lane from end_time
-        if overlapping_fixes and overlapping_fixes[-1].to_time > end_time:
-            last_fix = overlapping_fixes[-1]
-            end_part = LaneFix(
-                plate=self.plate,
-                from_time=end_time,
-                to_time=last_fix.to_time,
-                lane=last_fix.lane,
-                ignore=last_fix.ignore,  # Preserve original ignore flag
-                file_id=self.fileid_folder.name
-            )
-            new_fixes.append(end_part)
+        if overlapping_fixes:
+            # Find the period that contains end_time to get the correct lane
+            end_period = None
+            for fix in overlapping_fixes:
+                if fix.from_time <= end_time <= fix.to_time:
+                    end_period = fix
+                    break
+            
+            # If end_time is within a period, create end part from end_time to that period's end
+            if end_period and end_period.to_time > end_time:
+                end_part = LaneFix(
+                    plate=self.plate,
+                    from_time=end_time,
+                    to_time=end_period.to_time,
+                    lane=end_period.lane,
+                    ignore=end_period.ignore,
+                    file_id=self.fileid_folder.name
+                )
+                new_fixes.append(end_part)
+            
+            # Handle any remaining periods after the end_period
+            remaining_fixes = []
+            if end_period:
+                # Find fixes that start after end_period
+                remaining_fixes = [fix for fix in overlapping_fixes if fix.from_time >= end_period.to_time]
+            else:
+                # If end_time is not in any period, find fixes that start after end_time
+                remaining_fixes = [fix for fix in overlapping_fixes if fix.from_time >= end_time]
+            
+            # Add remaining periods as-is
+            for fix in remaining_fixes:
+                remaining_part = LaneFix(
+                    plate=self.plate,
+                    from_time=fix.from_time,
+                    to_time=fix.to_time,
+                    lane=fix.lane,
+                    ignore=fix.ignore,
+                    file_id=self.fileid_folder.name
+                )
+                new_fixes.append(remaining_part)
         
         # Replace overlapping fixes with new fixes
         self.lane_fixes = [fix for fix in self.lane_fixes if fix not in overlapping_fixes] + new_fixes
         
         self.has_changes = True
+        return True
 
     def get_next_lane_change_time(self, timestamp: datetime) -> Optional[datetime]:
         """
