@@ -691,8 +691,13 @@ class PhotoPreviewTab(QWidget):
             timestamp = self.current_metadata.get('timestamp')
             if timestamp is not None:
                 gps_coords = self.current_metadata.get('gps_coords', (None, None))
+                logging.info(f"PhotoPreviewTab: Navigating to image {index}, timestamp={timestamp}, lane_change_mode_active={self.lane_change_mode_active}")
                 self.timeline.set_current_position(timestamp)
                 self.position_changed.emit(timestamp, gps_coords)
+
+                # Update lane change end timestamp if in lane change mode
+                if self.lane_change_mode_active:
+                    self.lane_change_end_timestamp = timestamp
 
             # Update lane display based on current timestamp
             if self.lane_manager and timestamp:
@@ -969,7 +974,7 @@ class PhotoPreviewTab(QWidget):
         
 
     def _apply_lane_change(self):
-        """Apply lane change using dragged marker range"""
+        """Apply lane change using dragged marker range with override logic"""
         if not self.lane_change_mode_active:
             logging.warning("PhotoPreviewTab: _apply_lane_change called but lane change mode not active")
             return
@@ -984,28 +989,40 @@ class PhotoPreviewTab(QWidget):
             return
 
         start_time = self.lane_change_start_timestamp
-        end_time = self.lane_change_end_timestamp
+        dragged_end_time = self.lane_change_end_timestamp
 
-        if start_time >= end_time:
+        if start_time >= dragged_end_time:
             logging.warning("PhotoPreviewTab: Invalid time range for lane change")
             QMessageBox.warning(self, "Invalid Range", "End time must be after start time.")
             return
+
+        # Calculate actual end time: min(dragged_end_time, next_lane_change_time, folder_end_time)
+        next_change_time = self.lane_manager.get_next_lane_change_time(start_time)
+        folder_end_time = self.lane_manager.end_time
+
+        actual_end_time = dragged_end_time
+        if next_change_time and next_change_time < actual_end_time:
+            actual_end_time = next_change_time
+        if folder_end_time and folder_end_time < actual_end_time:
+            actual_end_time = folder_end_time
+
+        logging.info(f"PhotoPreviewTab: Lane change override - dragged: {dragged_end_time}, actual: {actual_end_time}")
 
         # Apply the lane change
         success = self.lane_manager.change_lane_smart(
             self.lane_change_new_lane,
             start_time,
             lambda **kwargs: 'custom',  # Custom range selected by dragging
-            custom_end_time=end_time
+            custom_end_time=actual_end_time
         )
 
         if success:
-            logging.info(f"PhotoPreviewTab: Lane change applied - {self.lane_change_new_lane} from {start_time} to {end_time}")
+            logging.info(f"PhotoPreviewTab: Lane change applied - {self.lane_change_new_lane} from {start_time} to {actual_end_time}")
             self.update_lane_display()
             # Update timeline to show lane changes
             if hasattr(self.timeline, 'timeline_area'):
                 self.timeline.timeline_area.update()
-            QMessageBox.information(self, "Success", f"Lane changed to {self.lane_change_new_lane} for the selected time range.")
+            QMessageBox.information(self, "Success", f"Lane changed to {self.lane_change_new_lane} from {start_time.strftime('%H:%M:%S')} to {actual_end_time.strftime('%H:%M:%S')}.")
         else:
             logging.error("PhotoPreviewTab: Lane change failed")
             QMessageBox.warning(self, "Error", "Failed to apply lane change.")
@@ -1149,7 +1166,9 @@ class PhotoPreviewTab(QWidget):
 
     def sync_to_timeline_position(self, timestamp: datetime, gps_coords: tuple):
         """Sync to timeline position - find closest image"""
+        logging.info(f"PhotoPreviewTab: sync_to_timeline_position called with timestamp={timestamp}")
         if not self.image_paths:
+            logging.warning("PhotoPreviewTab: No image paths for sync")
             return
 
         # Find image closest to timestamp
@@ -1158,6 +1177,7 @@ class PhotoPreviewTab(QWidget):
 
         # Convert timestamp to naive for comparison
         timestamp_naive = timestamp.replace(tzinfo=None) if timestamp.tzinfo else timestamp
+        logging.debug(f"PhotoPreviewTab: Looking for image closest to {timestamp_naive}")
 
         for i, path in enumerate(self.image_paths):
             metadata = extract_image_metadata(path)
@@ -1166,11 +1186,14 @@ class PhotoPreviewTab(QWidget):
                 # Convert to naive datetime for comparison
                 img_timestamp_naive = img_timestamp.replace(tzinfo=None)
                 diff = abs((img_timestamp_naive - timestamp_naive).total_seconds())
+                logging.debug(f"PhotoPreviewTab: Image {i}: {img_timestamp_naive}, diff={diff}")
                 if diff < min_diff:
                     min_diff = diff
                     closest_index = i
 
+        logging.info(f"PhotoPreviewTab: Closest image is index {closest_index}, current is {self.current_index}, diff={min_diff}")
         if closest_index != self.current_index:
+            logging.info(f"PhotoPreviewTab: Navigating to image {closest_index}")
             self.navigate_to_image(closest_index)
 
     def clear_caches(self):

@@ -607,6 +607,17 @@ class LaneManager:
         
         self.has_changes = True
 
+    def get_next_lane_change_time(self, timestamp: datetime) -> Optional[datetime]:
+        """
+        Get the timestamp of the next lane change after the given timestamp
+        Returns None if no lane change found
+        """
+        future_fixes = [fix for fix in self.lane_fixes if fix.from_time > timestamp]
+        if not future_fixes:
+            return None
+        # Return the earliest future lane change time
+        return min(fix.from_time for fix in future_fixes)
+
     @classmethod
     def from_dict(cls, data: dict) -> 'LaneManager':
         """Create LaneManager from dictionary"""
