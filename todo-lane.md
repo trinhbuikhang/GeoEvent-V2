@@ -141,6 +141,7 @@ def apply_lane_override(start_time, end_time, new_lane):
 - [x] UI state consistency: exit mode properly
 - [x] Skip lane assignment when clicking same lane button (no error/warning)
 - [x] Auto-save data when closing app (single FileID workflow)
+- [x] Improved lane period visualization: thicker bars, higher position, white separators
 
 ## Action Buttons Implementation
 - ✅ 3 circular buttons always visible above marker in lane change mode
