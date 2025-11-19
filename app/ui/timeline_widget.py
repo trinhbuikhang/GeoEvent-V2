@@ -1514,7 +1514,7 @@ class TimelineWidget(QWidget):
             end_time=self.new_event_end,
             start_chainage=start_chainage,
             end_chainage=end_chainage,
-            file_id=getattr(self.photo_tab, 'current_fileid', '') if self.photo_tab else ''
+            file_id=self.photo_tab.current_fileid.fileid if self.photo_tab and self.photo_tab.current_fileid else ''
         )
 
         logging.info(f"TimelineWidget: Created new event '{self.new_event_name}' (ID: {event_id}) from {self.new_event_start} to {self.new_event_end}")

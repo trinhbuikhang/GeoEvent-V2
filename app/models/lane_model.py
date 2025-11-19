@@ -433,7 +433,7 @@ class LaneManager:
                             continue
 
                     lane_fix = LaneFix(
-                        plate=row.get('Plate', ''),
+                        plate=row.get('Plate', '') or self.plate or '',
                         from_time=from_time,
                         to_time=to_time,
                         lane=row.get('Lane', ''),

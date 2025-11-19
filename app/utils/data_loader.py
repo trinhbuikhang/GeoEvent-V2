@@ -191,7 +191,8 @@ class DataLoader:
             'first_image_timestamp': None,
             'last_image_timestamp': None,
             'first_image_coords': None,
-            'last_image_coords': None
+            'last_image_coords': None,
+            'plate': None
         }
         
         if image_paths:
@@ -202,6 +203,9 @@ class DataLoader:
                 
                 metadata['first_image_timestamp'] = first_metadata.get('timestamp')
                 metadata['last_image_timestamp'] = last_metadata.get('timestamp')
+                
+                # Extract plate from first image
+                metadata['plate'] = first_metadata.get('plate')
                 
                 # Also store coordinates
                 if first_metadata.get('latitude') is not None and first_metadata.get('longitude') is not None:

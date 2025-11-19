@@ -220,8 +220,8 @@ class MainWindow(QMainWindow):
 
     def prev_fileid(self):
         """Navigate to previous FileID"""
-        # Auto-save current data before switching
-        self.auto_save_current_data()
+        # Auto-save current data before switching - DISABLED to avoid overwriting unchanged events
+        # self.auto_save_current_data()
         
         prev_fileid = self.fileid_manager.prev_fileid()
         if prev_fileid:
@@ -230,8 +230,8 @@ class MainWindow(QMainWindow):
 
     def next_fileid(self):
         """Navigate to next FileID"""
-        # Auto-save current data before switching
-        self.auto_save_current_data()
+        # Auto-save current data before switching - DISABLED to avoid overwriting unchanged events
+        # self.auto_save_current_data()
         
         next_fileid = self.fileid_manager.next_fileid()
         if next_fileid:
@@ -266,14 +266,41 @@ class MainWindow(QMainWindow):
             if not self.fileid_manager.fileid_list:
                 return
 
-            num_fileids = len(self.fileid_manager.fileid_list)
+            # Save events for each FileID that has cached modifications
+            for fileid_folder in self.fileid_manager.fileid_list:
+                if fileid_folder.fileid in self.photo_tab.events_per_fileid:
+                    events = self.photo_tab.events_per_fileid[fileid_folder.fileid]
+                    try:
+                        success = self.photo_tab.data_loader.save_events(events, fileid_folder)
+                        if success:
+                            logging.info(f"Auto-saved {len(events)} events for FileID {fileid_folder.fileid}")
+                        else:
+                            logging.error(f"Failed to auto-save events for FileID {fileid_folder.fileid}")
+                    except Exception as e:
+                        logging.error(f"Error saving events for {fileid_folder.fileid}: {str(e)}")
 
-            if num_fileids == 1:
-                # Single FileID: save directly to the folder
-                self._save_single_fileid_data()
-            else:
-                # Multiple FileIDs: merge and save to root folder
-                self._merge_and_save_multi_fileid_data()
+            # Save lane fixes for each FileID that has cached lane fixes
+            for fileid_folder in self.fileid_manager.fileid_list:
+                if fileid_folder.fileid in self.photo_tab.lane_fixes_per_fileid:
+                    lane_fixes = self.photo_tab.lane_fixes_per_fileid[fileid_folder.fileid]
+                    # Check if there are changes by comparing with loaded data
+                    try:
+                        from .models.lane_model import LaneManager
+                        temp_manager = LaneManager()
+                        temp_manager.set_fileid_folder(fileid_folder.path)
+                        original_fixes = temp_manager.get_lane_fixes()
+                        if len(lane_fixes) != len(original_fixes) or any(f1 != f2 for f1, f2 in zip(lane_fixes, original_fixes)):
+                            output_path = os.path.join(fileid_folder.path, f"{fileid_folder.fileid}_lane_fixes.csv")
+                            success = self.photo_tab.export_manager.export_lane_fixes(lane_fixes, output_path)
+                            if success:
+                                logging.info(f"Auto-saved {len(lane_fixes)} modified lane fixes for FileID {fileid_folder.fileid}")
+                            else:
+                                logging.error(f"Failed to auto-save lane fixes for FileID {fileid_folder.fileid}")
+                    except Exception as e:
+                        logging.error(f"Error checking/saving lane fixes for {fileid_folder.fileid}: {str(e)}")
+
+            # Also merge and save all data to root folder
+            self._merge_and_save_multi_fileid_data()
 
         except Exception as e:
             logging.error(f"Error during auto-save on close: {str(e)}")
@@ -344,8 +371,13 @@ class MainWindow(QMainWindow):
             fileid_lane_fixes = self._load_lane_fixes_for_fileid(fileid_folder)
             all_lane_fixes.extend(fileid_lane_fixes)
 
-        # Save merged events to root folder if there are changes or new events
-        if has_event_changes or all_events:
+        # Save merged events to root folder if there are any events
+        all_events = []
+        for fileid_folder in self.fileid_manager.fileid_list:
+            fileid_events = self._load_events_for_fileid(fileid_folder)
+            all_events.extend(fileid_events)
+
+        if all_events:
             merged_driveevt_path = os.path.join(root_folder, "merged.driveevt")
             success = self._save_merged_events(all_events, merged_driveevt_path)
             if success:
@@ -353,9 +385,9 @@ class MainWindow(QMainWindow):
             else:
                 logging.error("Failed to save merged events")
 
-        # Save merged lane fixes to root folder if there are changes or new lane fixes
-        if has_lane_changes or all_lane_fixes:
-            merged_lane_path = os.path.join(root_folder, "merged_lane_fixes.csv")
+        # Save merged lane fixes to root folder if there are any lane fixes
+        if all_lane_fixes:
+            merged_lane_path = os.path.join(root_folder, f"laneFixes-{datetime.now().strftime('%d-%m-%Y')}.csv")
             success = self._save_merged_lane_fixes(all_lane_fixes, merged_lane_path)
             if success:
                 logging.info(f"Saved {len(all_lane_fixes)} merged lane fixes to {merged_lane_path}")
@@ -468,8 +500,12 @@ class MainWindow(QMainWindow):
 
     def _load_events_for_fileid(self, fileid_folder) -> List:
         """Load events for a specific FileID folder"""
+        # First check if we have cached modified events
+        if hasattr(self.photo_tab, 'events_per_fileid') and fileid_folder.fileid in self.photo_tab.events_per_fileid:
+            return self.photo_tab.events_per_fileid[fileid_folder.fileid]
+        
+        # Otherwise load from file
         from .utils.data_loader import DataLoader
-
         try:
             data_loader = DataLoader()
             data = data_loader.load_fileid_data(fileid_folder)
@@ -480,8 +516,12 @@ class MainWindow(QMainWindow):
 
     def _load_lane_fixes_for_fileid(self, fileid_folder) -> List:
         """Load lane fixes for a specific FileID folder"""
+        # First check if we have cached lane fixes
+        if hasattr(self.photo_tab, 'lane_fixes_per_fileid') and fileid_folder.fileid in self.photo_tab.lane_fixes_per_fileid:
+            return self.photo_tab.lane_fixes_per_fileid[fileid_folder.fileid]
+        
+        # Otherwise load from file
         from .models.lane_model import LaneManager
-
         try:
             lane_manager = LaneManager()
             lane_manager.set_fileid_folder(fileid_folder.path)

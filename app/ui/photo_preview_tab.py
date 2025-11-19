@@ -5,6 +5,7 @@ Photo Preview Tab - Main UI component for GeoEvent application
 import os
 import logging
 from datetime import datetime
+from pathlib import Path
 from typing import List, Optional
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -103,6 +104,10 @@ class PhotoPreviewTab(QWidget):
 
         self.image_cache = {}  # Simple cache for loaded images
         self.events_modified = False  # Track if events have been modified
+        self.events_per_fileid = {}  # Store events per FileID to preserve changes across switches
+        self.lane_managers_per_fileid = {}  # Store lane managers per FileID to preserve changes across switches
+        self.lane_fixes_per_fileid = {}  # Store lane_fixes lists per FileID to preserve changes
+        self.current_fileid = None  # Current FileID being displayed
 
         # Lane change mode using current position marker
         self.lane_change_mode_active = False
@@ -519,6 +524,9 @@ class PhotoPreviewTab(QWidget):
                     setattr(event, key, value)
                 break
         self.events_modified = True
+        # Cache modified events for this FileID
+        if self.current_fileid:
+            self.events_per_fileid[self.current_fileid.fileid] = self.events
         # Use timeline_area.update() instead of timeline.update()
         if hasattr(self.timeline, 'timeline_area'):
             self.timeline.timeline_area.update()
@@ -528,6 +536,9 @@ class PhotoPreviewTab(QWidget):
         logging.info(f"PhotoPreviewTab: Deleting event {event_id}")
         self.events = [event for event in self.events if event.event_id != event_id]
         self.events_modified = True
+        # Cache modified events for this FileID
+        if self.current_fileid:
+            self.events_per_fileid[self.current_fileid.fileid] = self.events
         logging.info(f"PhotoPreviewTab: {len(self.events)} events remaining after deletion")
         # Update timeline display without changing view range
         self.timeline.set_events(self.events, update_view_range=False)
@@ -540,6 +551,9 @@ class PhotoPreviewTab(QWidget):
         logging.info(f"PhotoPreviewTab: Adding new event {event.event_id}")
         self.events.append(event)
         self.events_modified = True
+        # Cache modified events for this FileID
+        if self.current_fileid:
+            self.events_per_fileid[self.current_fileid.fileid] = self.events
         # Update timeline display
         self.timeline.set_events(self.events, update_view_range=False)
         # Force update timeline area
@@ -563,6 +577,11 @@ class PhotoPreviewTab(QWidget):
         logging.info(f"PhotoPreviewTab: Loading FileID {fileid_folder.fileid} from {fileid_folder.path}")
         
         try:
+            # Save current events and lane_fixes to cache before switching FileID
+            if self.current_fileid:
+                self.events_per_fileid[self.current_fileid.fileid] = self.events
+                self.lane_fixes_per_fileid[self.current_fileid.fileid] = self.lane_manager.lane_fixes if self.lane_manager else []
+            
             # Store current FileID for saving
             self.current_fileid = fileid_folder
             
@@ -570,11 +589,25 @@ class PhotoPreviewTab(QWidget):
             data = self.data_loader.load_fileid_data(fileid_folder)
 
             # Store loaded data
-            self.events = data['events']
+            # Use cached events if available (preserves modifications), otherwise use loaded events
+            self.events = self.events_per_fileid.get(fileid_folder.fileid, data['events'])
             self.gps_data = data['gps_data']
             self.image_paths = data['image_paths']
             self.fileid_metadata = data['metadata']
+            
+            # Always use a fresh lane manager from data
             self.lane_manager = data['lane_manager']
+            plate = data['metadata'].get('plate', 'Unknown')
+            self.lane_manager.plate = plate
+            self.lane_manager.fileid_folder = Path(fileid_folder.path)
+            self.lane_manager.set_end_time(data['metadata']['last_image_timestamp'])
+            
+            # Restore cached lane_fixes if available
+            if fileid_folder.fileid in self.lane_fixes_per_fileid:
+                self.lane_manager.lane_fixes = self.lane_fixes_per_fileid[fileid_folder.fileid]
+            
+            # Cache the current lane_fixes for this FileID
+            self.lane_fixes_per_fileid[fileid_folder.fileid] = self.lane_manager.lane_fixes
             
             logging.info(f"PhotoPreviewTab: Stored {len(self.events)} events, {len(self.image_paths)} images")
 
@@ -658,7 +691,7 @@ class PhotoPreviewTab(QWidget):
             timestamp = self.current_metadata.get('timestamp')
             if timestamp is not None:
                 gps_coords = self.current_metadata.get('gps_coords', (None, None))
-                self.timeline.set_current_position(timestamp, update_view_range=False)
+                self.timeline.set_current_position(timestamp)
                 self.position_changed.emit(timestamp, gps_coords)
 
             # Update lane display based on current timestamp
@@ -667,8 +700,13 @@ class PhotoPreviewTab(QWidget):
 
     def load_current_image(self):
         """Load and display current image"""
+        # THÊM VALIDATION ĐẦY ĐỦ
+        if not hasattr(self, 'image_paths') or not self.image_paths:
+            logging.warning("load_current_image: No image paths available")
+            return
+            
         if self.current_index < 0 or self.current_index >= len(self.image_paths):
-            logging.warning(f"load_current_image: Invalid index {self.current_index}, total images: {len(self.image_paths)}")
+            logging.warning(f"load_current_image: Invalid index {self.current_index}, total: {len(self.image_paths)}")
             return
 
         image_path = self.image_paths[self.current_index]
@@ -887,18 +925,6 @@ class PhotoPreviewTab(QWidget):
         )
         logging.info("PhotoPreviewTab: LaneChangeDialog created")
         
-        # Show choice dialog
-        logging.info(f"PhotoPreviewTab: Creating LaneChangeDialog for {current_lane} -> {new_lane_code}")
-        dialog = LaneChangeDialog(
-            current_lane=current_lane,
-            new_lane=new_lane_code,
-            timestamp=timestamp,
-            period_start=target_fix.from_time,
-            period_end=target_fix.to_time,
-            parent=self
-        )
-        logging.info("PhotoPreviewTab: LaneChangeDialog created")
-        
         logging.info(f"PhotoPreviewTab: Showing lane change dialog for {current_lane} -> {new_lane_code}")
         result = dialog.exec()
         logging.info(f"PhotoPreviewTab: Dialog result: {result}")
@@ -942,8 +968,13 @@ class PhotoPreviewTab(QWidget):
             logging.warning("PhotoPreviewTab: _apply_lane_change called but lane change mode not active")
             return
 
-        if not hasattr(self, 'lane_change_start_timestamp') or not hasattr(self, 'lane_change_end_timestamp'):
-            logging.warning("PhotoPreviewTab: _apply_lane_change called but timestamps not set")
+        # THÊM VALIDATION ĐẦY ĐỦ
+        if not hasattr(self, 'lane_change_start_timestamp') or self.lane_change_start_timestamp is None:
+            logging.warning("PhotoPreviewTab: lane_change_start_timestamp not set")
+            return
+            
+        if not hasattr(self, 'lane_change_end_timestamp') or self.lane_change_end_timestamp is None:
+            logging.warning("PhotoPreviewTab: lane_change_end_timestamp not set")
             return
 
         start_time = self.lane_change_start_timestamp
@@ -1224,8 +1255,8 @@ class PhotoPreviewTab(QWidget):
         # Find the FileID folder
         for fileid_folder in self.main_window.fileid_manager.fileid_list:
             if fileid_folder.fileid == fileid:
-                # Auto-save current data before switching
-                self.main_window.auto_save_current_data()
+                # Auto-save current data before switching - DISABLED to avoid overwriting unchanged events
+                # self.main_window.auto_save_current_data()
                 
                 # Load the selected FileID
                 self.main_window.load_fileid(fileid_folder)
