@@ -299,6 +299,30 @@ class MainWindow(QMainWindow):
                     except Exception as e:
                         logging.error(f"Error checking/saving lane fixes for {fileid_folder.fileid}: {str(e)}")
 
+            # Also save current FileID data if not already saved via cache
+            if self.photo_tab.current_fileid and self.photo_tab.current_fileid not in [f.fileid for f in self.fileid_manager.fileid_list if f.fileid in self.photo_tab.events_per_fileid]:
+                # Current FileID data not in cache, save it directly
+                try:
+                    # Save events
+                    if self.photo_tab.events:
+                        success = self.photo_tab.data_loader.save_events(self.photo_tab.events, self.photo_tab.current_fileid)
+                        if success:
+                            logging.info(f"Auto-saved {len(self.photo_tab.events)} current events for FileID {self.photo_tab.current_fileid.fileid}")
+                        else:
+                            logging.error(f"Failed to auto-save current events for FileID {self.photo_tab.current_fileid.fileid}")
+                    
+                    # Save lane fixes if modified
+                    if self.photo_tab.lane_manager and self.photo_tab.lane_manager.has_changes:
+                        lane_fixes = self.photo_tab.lane_manager.get_lane_fixes()
+                        output_path = os.path.join(self.photo_tab.current_fileid.path, f"{self.photo_tab.current_fileid.fileid}_lane_fixes.csv")
+                        success = self.photo_tab.export_manager.export_lane_fixes(lane_fixes, output_path, include_file_id=False)
+                        if success:
+                            logging.info(f"Auto-saved {len(lane_fixes)} current lane fixes for FileID {self.photo_tab.current_fileid.fileid}")
+                        else:
+                            logging.error(f"Failed to auto-save current lane fixes for FileID {self.photo_tab.current_fileid.fileid}")
+                except Exception as e:
+                    logging.error(f"Error saving current FileID data: {str(e)}")
+
             # Also merge and save all data to root folder
             self._merge_and_save_multi_fileid_data()
 
