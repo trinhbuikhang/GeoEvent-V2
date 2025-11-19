@@ -958,9 +958,37 @@ class PhotoPreviewTab(QWidget):
         self.lane_change_mode_active = True
         self.lane_change_new_lane = new_lane_code
         self.lane_change_start_timestamp = timestamp
-        self.lane_change_end_timestamp = timestamp  # Initial end time same as start
         
-        # Enable lane change mode on timeline
+        # Calculate automatic end time: next lane change or folder end
+        next_change_time = self.lane_manager.get_next_lane_change_time(timestamp)
+        folder_end_time = self.lane_manager.end_time
+        
+        # Set end time to next change or folder end
+        if next_change_time:
+            self.lane_change_end_timestamp = next_change_time
+        elif folder_end_time:
+            self.lane_change_end_timestamp = folder_end_time
+        else:
+            # Fallback: add 1 hour
+            self.lane_change_end_timestamp = timestamp + timedelta(hours=1)
+        
+        logging.info(f"PhotoPreviewTab: Auto lane change - start: {timestamp}, auto_end: {self.lane_change_end_timestamp}")
+        
+        # Auto-apply the lane change to the calculated range
+        success = self.lane_manager.change_lane_smart(
+            new_lane_code,
+            timestamp,
+            lambda **kwargs: 'custom',
+            custom_end_time=self.lane_change_end_timestamp
+        )
+        
+        if success:
+            logging.info(f"PhotoPreviewTab: Auto-applied lane change - {new_lane_code} from {timestamp} to {self.lane_change_end_timestamp}")
+            self.update_lane_display()
+        else:
+            logging.error("PhotoPreviewTab: Auto lane change failed")
+        
+        # Enable lane change mode on timeline (for marker and buttons)
         self.timeline.enable_lane_change_mode(new_lane_code, timestamp)
 
     def _exit_lane_change_mode(self):
@@ -974,7 +1002,7 @@ class PhotoPreviewTab(QWidget):
         
 
     def _apply_lane_change(self):
-        """Apply lane change using dragged marker range with override logic"""
+        """Apply lane change using current end timestamp (updated by dragging)"""
         if not self.lane_change_mode_active:
             logging.warning("PhotoPreviewTab: _apply_lane_change called but lane change mode not active")
             return
@@ -989,40 +1017,30 @@ class PhotoPreviewTab(QWidget):
             return
 
         start_time = self.lane_change_start_timestamp
-        dragged_end_time = self.lane_change_end_timestamp
+        end_time = self.lane_change_end_timestamp
 
-        if start_time >= dragged_end_time:
+        if start_time >= end_time:
             logging.warning("PhotoPreviewTab: Invalid time range for lane change")
             QMessageBox.warning(self, "Invalid Range", "End time must be after start time.")
             return
 
-        # Calculate actual end time: min(dragged_end_time, next_lane_change_time, folder_end_time)
-        next_change_time = self.lane_manager.get_next_lane_change_time(start_time)
-        folder_end_time = self.lane_manager.end_time
+        logging.info(f"PhotoPreviewTab: Applying lane change - {self.lane_change_new_lane} from {start_time} to {end_time}")
 
-        actual_end_time = dragged_end_time
-        if next_change_time and next_change_time < actual_end_time:
-            actual_end_time = next_change_time
-        if folder_end_time and folder_end_time < actual_end_time:
-            actual_end_time = folder_end_time
-
-        logging.info(f"PhotoPreviewTab: Lane change override - dragged: {dragged_end_time}, actual: {actual_end_time}")
-
-        # Apply the lane change
+        # Apply the lane change using the current end timestamp
         success = self.lane_manager.change_lane_smart(
             self.lane_change_new_lane,
             start_time,
-            lambda **kwargs: 'custom',  # Custom range selected by dragging
-            custom_end_time=actual_end_time
+            lambda **kwargs: 'custom',
+            custom_end_time=end_time
         )
 
         if success:
-            logging.info(f"PhotoPreviewTab: Lane change applied - {self.lane_change_new_lane} from {start_time} to {actual_end_time}")
+            logging.info(f"PhotoPreviewTab: Lane change applied - {self.lane_change_new_lane} from {start_time} to {end_time}")
             self.update_lane_display()
             # Update timeline to show lane changes
             if hasattr(self.timeline, 'timeline_area'):
                 self.timeline.timeline_area.update()
-            QMessageBox.information(self, "Success", f"Lane changed to {self.lane_change_new_lane} from {start_time.strftime('%H:%M:%S')} to {actual_end_time.strftime('%H:%M:%S')}.")
+            QMessageBox.information(self, "Success", f"Lane changed to {self.lane_change_new_lane} from {start_time.strftime('%H:%M:%S')} to {end_time.strftime('%H:%M:%S')}.")
         else:
             logging.error("PhotoPreviewTab: Lane change failed")
             QMessageBox.warning(self, "Error", "Failed to apply lane change.")

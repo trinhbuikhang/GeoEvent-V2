@@ -53,7 +53,11 @@ Khi user dịch chuyển marker xong (release mouse), hiện dialog với 3 lự
    - Nếu CONTINUE: giữ mode, cho drag tiếp
    - Nếu CANCELLED: exit mode, revert marker
 
-### Phase 3: Logic Override Lane (LaneManager)
+### Phase 3: Logic Override Lane (LaneManager) ✅ HOÀN THÀNH
+- ✅ Khi enable lane change mode: Tự động apply change từ start_timestamp đến next_lane_change_time (hoặc folder_end_time)
+- ✅ Khi drag marker: Chỉ update lane_change_end_timestamp, không apply change ngay
+- ✅ Khi confirm (click "OK"): Apply change từ start_timestamp đến lane_change_end_timestamp hiện tại
+- ✅ Logic linh hoạt: Người dùng có thể drag để thay đổi end_time trước khi confirm
 1. **Cập nhật change_lane_smart()**:
    - Thêm parameter `end_timestamp` để chỉ định end time
    - Logic: từ start_timestamp tới min(end_timestamp, next_lane_change_time, folder_end_time)
