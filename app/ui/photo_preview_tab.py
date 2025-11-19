@@ -967,27 +967,30 @@ class PhotoPreviewTab(QWidget):
         next_change_time = self.lane_manager.get_next_lane_change_time(timestamp)
         folder_end_time = self.lane_manager.end_time
         
-        # Set end time to next change or folder end
+        # Store the auto-calculated end time for reference
         if next_change_time:
-            self.lane_change_end_timestamp = next_change_time
+            self.lane_change_auto_end_timestamp = next_change_time
         elif folder_end_time:
-            self.lane_change_end_timestamp = folder_end_time
+            self.lane_change_auto_end_timestamp = folder_end_time
         else:
             # Fallback: add 1 hour
-            self.lane_change_end_timestamp = timestamp + timedelta(hours=1)
+            self.lane_change_auto_end_timestamp = timestamp + timedelta(hours=1)
         
-        logging.info(f"PhotoPreviewTab: Auto lane change - start: {timestamp}, auto_end: {self.lane_change_end_timestamp}")
+        # Set initial end time to auto-calculated (user can override by dragging)
+        self.lane_change_end_timestamp = self.lane_change_auto_end_timestamp
         
-        # Auto-apply the lane change to the calculated range
+        logging.info(f"PhotoPreviewTab: Lane change mode enabled - start: {timestamp}, auto_end: {self.lane_change_auto_end_timestamp}")
+        
+        # Auto-apply the lane change to the calculated range initially
         success = self.lane_manager.change_lane_smart(
             new_lane_code,
             timestamp,
             lambda **kwargs: 'custom',
-            custom_end_time=self.lane_change_end_timestamp
+            custom_end_time=self.lane_change_auto_end_timestamp
         )
         
         if success:
-            logging.info(f"PhotoPreviewTab: Auto-applied lane change - {new_lane_code} from {timestamp} to {self.lane_change_end_timestamp}")
+            logging.info(f"PhotoPreviewTab: Auto-applied lane change - {new_lane_code} from {timestamp} to {self.lane_change_auto_end_timestamp}")
             self.update_lane_display()
         else:
             logging.error("PhotoPreviewTab: Auto lane change failed")
@@ -1028,15 +1031,22 @@ class PhotoPreviewTab(QWidget):
             QMessageBox.warning(self, "Invalid Range", "End time must be after start time.")
             return
 
-        logging.info(f"PhotoPreviewTab: Applying lane change - {self.lane_change_new_lane} from {start_time} to {end_time}")
-
-        # Apply the lane change using the current end timestamp
-        success = self.lane_manager.change_lane_smart(
-            self.lane_change_new_lane,
-            start_time,
-            lambda **kwargs: 'custom',
-            custom_end_time=end_time
-        )
+        # Check if user has modified the end time from auto-calculated
+        user_modified = hasattr(self, 'lane_change_auto_end_timestamp') and self.lane_change_auto_end_timestamp != end_time
+        
+        if user_modified:
+            logging.info(f"PhotoPreviewTab: User modified end time - auto: {self.lane_change_auto_end_timestamp}, user: {end_time}")
+            # Apply the lane change with user-specified end time
+            success = self.lane_manager.change_lane_smart(
+                self.lane_change_new_lane,
+                start_time,
+                lambda **kwargs: 'custom',
+                custom_end_time=end_time
+            )
+        else:
+            logging.info(f"PhotoPreviewTab: Using auto-calculated end time: {end_time}")
+            # Auto-apply already done, just confirm
+            success = True
 
         if success:
             logging.info(f"PhotoPreviewTab: Lane change applied - {self.lane_change_new_lane} from {start_time} to {end_time}")
