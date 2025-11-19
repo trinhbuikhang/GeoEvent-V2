@@ -857,11 +857,11 @@ class TimelineWidget(QWidget):
         if not lane_fixes:
             return
 
-        # Draw lane periods as thin horizontal bars below the marker
-        lane_bar_y = rect.bottom() + 5  # Just below the timeline
-        lane_bar_height = 3  # Thin bar
+        # Draw lane periods as thicker horizontal bars below the marker
+        lane_bar_y = rect.bottom() + 2  # Higher position above timeline
+        lane_bar_height = 6  # Double thickness
 
-        for fix in lane_fixes:
+        for i, fix in enumerate(lane_fixes):
             start_x = self.time_to_pixel(fix.from_time, pixels_per_second, rect.left())
             end_x = self.time_to_pixel(fix.to_time, pixels_per_second, rect.left())
 
@@ -890,6 +890,13 @@ class TimelineWidget(QWidget):
                 # Normal lane periods
                 color = QColor(self.lane_manager.get_lane_color(fix.lane))
                 painter.fillRect(int(visible_start), lane_bar_y, int(width), lane_bar_height, color)
+
+            # Draw white separator line at the end of each period (except the last one)
+            if i < len(lane_fixes) - 1:  # Not the last period
+                separator_x = int(end_x)
+                if rect.left() <= separator_x <= rect.right():
+                    painter.setPen(QPen(QColor('#FFFFFF'), 2))  # White line, 2 pixels wide
+                    painter.drawLine(separator_x, lane_bar_y, separator_x, lane_bar_y + lane_bar_height)
 
     def paint_current_position(self, painter: QPainter, rect: QRect, pixels_per_second: float):
         """Paint current position marker"""
