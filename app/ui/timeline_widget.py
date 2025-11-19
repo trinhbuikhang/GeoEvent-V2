@@ -858,7 +858,7 @@ class TimelineWidget(QWidget):
             return
 
         # Draw lane periods as thicker horizontal bars below the marker
-        lane_bar_y = rect.bottom() + 2  # Higher position above timeline
+        lane_bar_y = rect.bottom() - 6  # Higher position above timeline
         lane_bar_height = 6  # Double thickness
 
         for i, fix in enumerate(lane_fixes):
@@ -1059,10 +1059,13 @@ class TimelineWidget(QWidget):
                 logging.info("TimelineWidget: Applying lane change")
                 self.photo_tab._apply_lane_change()
         elif button_type == 'cancel':
-            # Cancel and exit mode
+            # Cancel and exit mode with revert
             logging.info("TimelineWidget: Cancelling lane change")
-            self.disable_lane_change_mode()
-            # Keep current position as is - don't reset to start timestamp
+            if self.photo_tab and hasattr(self.photo_tab, '_exit_lane_change_mode'):
+                self.photo_tab._exit_lane_change_mode()
+            else:
+                # Fallback if photo_tab method not available
+                self.disable_lane_change_mode()
             self.timeline_area.update()
 
     def paint_marker(self, painter: QPainter, rect: QRect, pixels_per_second: float):

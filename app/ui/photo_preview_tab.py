@@ -4,7 +4,7 @@ Photo Preview Tab - Main UI component for GeoEvent application
 
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
 from PyQt6.QtWidgets import (
@@ -351,7 +351,7 @@ class PhotoPreviewTab(QWidget):
         control_row.setSpacing(5)
         
         # Turn Left button (TK)
-        self.turn_left_btn = QPushButton("TK\n↰")
+        self.turn_left_btn = QPushButton("TK ↰")
         self.turn_left_btn.setCheckable(True)
         self.turn_left_btn.setStyleSheet("""
             QPushButton {
@@ -379,7 +379,7 @@ class PhotoPreviewTab(QWidget):
         control_row.addWidget(self.turn_left_btn)
 
         # Turn Right button (TM)
-        self.turn_right_btn = QPushButton("TM\n↱")
+        self.turn_right_btn = QPushButton("TM ↱")
         self.turn_right_btn.setCheckable(True)
         self.turn_right_btn.setStyleSheet("""
             QPushButton {
@@ -904,6 +904,7 @@ class PhotoPreviewTab(QWidget):
 
         if success:
             self.update_lane_display()
+            self.timeline.update()  # Force timeline repaint to show lane changes
             # Update timeline to show lane changes
             if hasattr(self.timeline, 'timeline_area'):
                 self.timeline.timeline_area.update()
@@ -963,6 +964,9 @@ class PhotoPreviewTab(QWidget):
         self.lane_change_new_lane = new_lane_code
         self.lane_change_start_timestamp = timestamp
         
+        # Store the original lane at start timestamp for potential revert
+        self.lane_change_original_lane = self.lane_manager.get_lane_at_timestamp(timestamp)
+        
         # Calculate automatic end time: next lane change or folder end
         next_change_time = self.lane_manager.get_next_lane_change_time(timestamp)
         folder_end_time = self.lane_manager.end_time
@@ -992,6 +996,7 @@ class PhotoPreviewTab(QWidget):
         if success:
             logging.info(f"PhotoPreviewTab: Auto-applied lane change - {new_lane_code} from {timestamp} to {self.lane_change_auto_end_timestamp}")
             self.update_lane_display()
+            self.timeline.update()  # Force timeline repaint to show auto-applied lane changes
         else:
             logging.error("PhotoPreviewTab: Auto lane change failed")
         
@@ -999,10 +1004,36 @@ class PhotoPreviewTab(QWidget):
         self.timeline.enable_lane_change_mode(new_lane_code, timestamp)
 
     def _exit_lane_change_mode(self):
-        """Exit lane change mode without applying changes"""
+        """Exit lane change mode and revert auto-applied changes"""
+        # Revert the auto-applied lane change if it was applied
+        if (hasattr(self, 'lane_change_start_timestamp') and self.lane_change_start_timestamp and
+            hasattr(self, 'lane_change_auto_end_timestamp') and self.lane_change_auto_end_timestamp and
+            hasattr(self, 'lane_change_original_lane') and self.lane_change_original_lane):
+            
+            logging.info(f"PhotoPreviewTab: Reverting auto-applied lane change - restoring {self.lane_change_original_lane} from {self.lane_change_start_timestamp} to {self.lane_change_auto_end_timestamp}")
+            
+            # Apply the original lane back to the auto-applied range
+            success = self.lane_manager.change_lane_smart(
+                self.lane_change_original_lane,
+                self.lane_change_start_timestamp,
+                lambda **kwargs: 'custom',
+                custom_end_time=self.lane_change_auto_end_timestamp
+            )
+            
+            if success:
+                logging.info("PhotoPreviewTab: Successfully reverted lane change")
+                self.update_lane_display()
+                self.timeline.update()  # Force timeline repaint to show reverted lane colors
+            else:
+                logging.error("PhotoPreviewTab: Failed to revert lane change")
+        
+        # Clear lane change state
         self.lane_change_mode_active = False
         self.lane_change_new_lane = None
         self.lane_change_start_timestamp = None
+        self.lane_change_end_timestamp = None
+        self.lane_change_auto_end_timestamp = None
+        self.lane_change_original_lane = None
         
         # Disable lane change mode on timeline
         self.timeline.disable_lane_change_mode()
@@ -1051,6 +1082,7 @@ class PhotoPreviewTab(QWidget):
         if success:
             logging.info(f"PhotoPreviewTab: Lane change applied - {self.lane_change_new_lane} from {start_time} to {end_time}")
             self.update_lane_display()
+            self.timeline.update()  # Force timeline repaint to show applied lane changes
             # Update timeline to show lane changes
             if hasattr(self.timeline, 'timeline_area'):
                 self.timeline.timeline_area.update()
