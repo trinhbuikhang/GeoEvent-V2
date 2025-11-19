@@ -1,0 +1,147 @@
+/* GeoEvent Dark Theme */
+
+QMainWindow {
+    background-color: #2C3E50;
+    color: #ECF0F1;
+}
+
+QWidget {
+    background-color: #34495E;
+    color: #ECF0F1;
+    border-radius: 4px;
+}
+
+QGroupBox {
+    font-weight: bold;
+    border: 1px solid #3E4E5E;
+    border-radius: 4px;
+    margin-top: 1ex;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 5px 0 5px;
+}
+
+QPushButton {
+    background-color: #3498DB;
+    color: white;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    font-weight: bold;
+}
+
+QPushButton:hover {
+    background-color: #2980B9;
+}
+
+QPushButton:pressed {
+    background-color: #1F618D;
+}
+
+QPushButton:disabled {
+    background-color: #7F8C8D;
+    color: #BDC3C7;
+}
+
+QLineEdit, QComboBox, QDateTimeEdit {
+    background-color: #2C3E50;
+    color: #ECF0F1;
+    border: 1px solid #3E4E5E;
+    border-radius: 4px;
+    padding: 4px;
+}
+
+QLineEdit:focus, QComboBox:focus, QDateTimeEdit:focus {
+    border-color: #3498DB;
+}
+
+QSlider::groove:horizontal {
+    border: 1px solid #3E4E5E;
+    height: 8px;
+    background: #2C3E50;
+    margin: 2px 0;
+    border-radius: 4px;
+}
+
+QSlider::handle:horizontal {
+    background: #3498DB;
+    border: 1px solid #2980B9;
+    width: 18px;
+    margin: -2px 0;
+    border-radius: 4px;
+}
+
+QSlider::handle:horizontal:hover {
+    background: #2980B9;
+}
+
+QLabel {
+    color: #ECF0F1;
+}
+
+QStatusBar {
+    background-color: #2C3E50;
+    border-top: 1px solid #3E4E5E;
+}
+
+QMenuBar {
+    background-color: #2C3E50;
+    border-bottom: 1px solid #3E4E5E;
+}
+
+QMenuBar::item {
+    background-color: transparent;
+    padding: 4px 8px;
+}
+
+QMenuBar::item:selected {
+    background-color: #3498DB;
+}
+
+QMenu {
+    background-color: #34495E;
+    border: 1px solid #3E4E5E;
+}
+
+QMenu::item {
+    padding: 4px 20px;
+}
+
+QMenu::item:selected {
+    background-color: #3498DB;
+}
+
+/* Timeline specific */
+TimelineWidget {
+    background-color: #1E2A38;
+    border: 1px solid #3E4E5E;
+}
+
+/* Scrollbar */
+QScrollBar:vertical {
+    background-color: #2C3E50;
+    width: 12px;
+    margin: 0;
+}
+
+QScrollBar::handle:vertical {
+    background-color: #3498DB;
+    border-radius: 6px;
+    min-height: 20px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background-color: #2980B9;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    border: none;
+    background: none;
+}
+
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: none;
+}
