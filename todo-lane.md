@@ -56,8 +56,9 @@ Khi user dịch chuyển marker xong (release mouse), hiện dialog với 3 lự
 ### Phase 3: Logic Override Lane (LaneManager) ✅ HOÀN THÀNH
 - ✅ Khi enable lane change mode: Tự động apply change từ start_timestamp đến next_lane_change_time (hoặc folder_end_time)
 - ✅ Khi drag marker: Chỉ update lane_change_end_timestamp, không apply change ngay
-- ✅ Khi confirm (click "OK"): Apply change từ start_timestamp đến lane_change_end_timestamp hiện tại
-- ✅ Logic linh hoạt: Người dùng có thể drag để thay đổi end_time trước khi confirm
+- ✅ Khi confirm (click "OK"): Ưu tiên sử dụng end_timestamp do user chọn (không phải auto-calculated nếu user đã drag)
+- ✅ Logic apply_lane_change_range: Đúng xác định period chứa end_time và preserve các periods xung quanh
+- ✅ Test case: 10:15-10:30 Lane 2 giữa 10:00-11:00 Lane 1 và 11:00-12:00 Lane 2 → preserve đúng
 1. **Cập nhật change_lane_smart()**:
    - Thêm parameter `end_timestamp` để chỉ định end time
    - Logic: từ start_timestamp tới min(end_timestamp, next_lane_change_time, folder_end_time)
@@ -138,6 +139,8 @@ def apply_lane_override(start_time, end_time, new_lane):
 - [x] Timeline auto-scroll để marker visible
 - [x] Data persistence: lưu lane_fixes.csv đúng
 - [x] UI state consistency: exit mode properly
+- [x] Skip lane assignment when clicking same lane button (no error/warning)
+- [x] Auto-save data when closing app (single FileID workflow)
 
 ## Action Buttons Implementation
 - ✅ 3 circular buttons always visible above marker in lane change mode
