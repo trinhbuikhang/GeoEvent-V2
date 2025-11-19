@@ -893,8 +893,12 @@ class PhotoPreviewTab(QWidget):
         if current_lane_at_time and current_lane_at_time != lane_code:
             # Dù là loại lane nào, đều bật smart change dialog
             success = self._perform_smart_lane_change(lane_code, timestamp)
+        elif current_lane_at_time and current_lane_at_time == lane_code:
+            # Đang ở cùng lane rồi, không cần làm gì
+            logging.info(f"PhotoPreviewTab: Already in lane {lane_code}, no change needed")
+            success = True
         else:
-            # Nếu chưa có lane hoặc trùng, thì gán trực tiếp
+            # Nếu chưa có lane, thì gán trực tiếp
             success = self.lane_manager.assign_lane(lane_code, timestamp)
             logging.info(f"PhotoPreviewTab: standard lane_manager.assign_lane returned success={success}")
 
