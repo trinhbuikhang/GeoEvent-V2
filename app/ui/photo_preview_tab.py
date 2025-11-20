@@ -121,6 +121,9 @@ class PhotoPreviewTab(QWidget):
         self.lane_buttons = QButtonGroup(self)
         self.lane_buttons.setExclusive(True)  # Only one lane button can be checked at a time
 
+        # Dictionary to store all lane buttons by lane code for highlighting
+        self.lane_button_map = {}  # lane_code -> button
+
         self.data_loader = DataLoader()  # Data loading manager
         self.export_manager = ExportManager()  # Export manager
 
@@ -334,17 +337,27 @@ class PhotoPreviewTab(QWidget):
                     color: white;
                     border: 2px solid #388E3C;
                 }
+                QPushButton[current="true"] {
+                    background-color: #FFD700;
+                    color: black;
+                    border: 3px solid #FFA000;
+                    font-weight: bold;
+                }
                 QPushButton:hover {
                     background-color: #1565C0;
                 }
                 QPushButton:checked:hover {
                     background-color: #45a049;
                 }
+                QPushButton[current="true"]:hover {
+                    background-color: #FFC107;
+                }
             """)
             btn.clicked.connect(lambda checked, c=code: self.assign_lane(c))
             btn.setMinimumHeight(35)
             btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             self.lane_buttons.addButton(btn)
+            self.lane_button_map[code] = btn  # Store button reference
             lane_row.addWidget(btn)
 
         parent_layout.addLayout(lane_row)
@@ -364,16 +377,26 @@ class PhotoPreviewTab(QWidget):
                     padding: 5px;
                     font-weight: bold;
                 }
+                QPushButton[current="true"] {
+                    background-color: #FFD700;
+                    color: black;
+                    border: 3px solid #FFA000;
+                    font-weight: bold;
+                }
                 QPushButton:hover {
                     background-color: #1565C0;
                 }
                 QPushButton:pressed {
                     background-color: #0D47A1;
                 }
+                QPushButton[current="true"]:hover {
+                    background-color: #FFC107;
+                }
             """)
             btn.clicked.connect(lambda checked, c=code: self.assign_lane(c))
             btn.setMinimumHeight(35)
             btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            self.lane_button_map[code] = btn  # Store button reference
             tk_row.addWidget(btn)
 
         parent_layout.addLayout(tk_row)
@@ -393,16 +416,26 @@ class PhotoPreviewTab(QWidget):
                     padding: 5px;
                     font-weight: bold;
                 }
+                QPushButton[current="true"] {
+                    background-color: #FFD700;
+                    color: black;
+                    border: 3px solid #FFA000;
+                    font-weight: bold;
+                }
                 QPushButton:hover {
                     background-color: #1565C0;
                 }
                 QPushButton:pressed {
                     background-color: #0D47A1;
                 }
+                QPushButton[current="true"]:hover {
+                    background-color: #FFC107;
+                }
             """)
             btn.clicked.connect(lambda checked, c=code: self.assign_lane(c))
             btn.setMinimumHeight(35)
             btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            self.lane_button_map[code] = btn  # Store button reference
             tm_row.addWidget(btn)
 
         parent_layout.addLayout(tm_row)
@@ -421,16 +454,26 @@ class PhotoPreviewTab(QWidget):
                 padding: 5px;
                 font-weight: bold;
             }
+            QPushButton[current="true"] {
+                background-color: #FFD700;
+                color: black;
+                border: 3px solid #FFA000;
+                font-weight: bold;
+            }
             QPushButton:hover {
                 background-color: #FB8C00;
             }
             QPushButton:pressed {
                 background-color: #E65100;
             }
+            QPushButton[current="true"]:hover {
+                background-color: #FFC107;
+            }
         """)
         self.sk_btn.clicked.connect(self.assign_sk)
         self.sk_btn.setMinimumHeight(35)
         self.sk_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.lane_button_map['SK'] = self.sk_btn  # Store button reference
         control_row.addWidget(self.sk_btn)
 
         # Ignore button
@@ -443,16 +486,26 @@ class PhotoPreviewTab(QWidget):
                 padding: 5px;
                 font-weight: bold;
             }
+            QPushButton[current="true"] {
+                background-color: #FFD700;
+                color: black;
+                border: 3px solid #FFA000;
+                font-weight: bold;
+            }
             QPushButton:hover {
                 background-color: #E53935;
             }
             QPushButton:pressed {
                 background-color: #B71C1C;
             }
+            QPushButton[current="true"]:hover {
+                background-color: #FFC107;
+            }
         """)
         self.ignore_btn.clicked.connect(self.assign_ignore)
         self.ignore_btn.setMinimumHeight(35)
         self.ignore_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.lane_button_map[''] = self.ignore_btn  # Store button reference (empty string for ignore)
         control_row.addWidget(self.ignore_btn)
 
         parent_layout.addLayout(control_row)
@@ -656,6 +709,16 @@ class PhotoPreviewTab(QWidget):
             # Reset lane button states when switching FileID
             for button in self.lane_buttons.buttons():
                 button.setChecked(False)
+                button.setProperty("current", False)
+                button.style().unpolish(button)
+                button.style().polish(button)
+            
+            # Reset all buttons in lane_button_map
+            for button in self.lane_button_map.values():
+                button.setProperty("current", False)
+                button.style().unpolish(button)
+                button.style().polish(button)
+                
             self.update_lane_display()
 
         except Exception as e:
@@ -1151,6 +1214,15 @@ class PhotoPreviewTab(QWidget):
             # Reset all lane buttons
             for button in self.lane_buttons.buttons():
                 button.setChecked(False)
+                button.setProperty("current", False)
+                button.style().unpolish(button)
+                button.style().polish(button)
+            
+            # Reset all buttons in lane_button_map
+            for button in self.lane_button_map.values():
+                button.setProperty("current", False)
+                button.style().unpolish(button)
+                button.style().polish(button)
             return
 
         current_lane = self.lane_manager.current_lane or "None"
@@ -1170,19 +1242,31 @@ class PhotoPreviewTab(QWidget):
 
     def _update_button_states(self, current_lane: str):
         """Update UI button states to match the current lane state"""
-        # Reset all lane buttons first
+        # Reset all lane buttons first - remove current highlighting
         for button in self.lane_buttons.buttons():
             button.setChecked(False)
+            button.setProperty("current", False)
+            button.style().unpolish(button)
+            button.style().polish(button)
+        
+        # Reset all buttons in lane_button_map
+        for button in self.lane_button_map.values():
+            button.setProperty("current", False)
+            button.style().unpolish(button)
+            button.style().polish(button)
 
         # Set appropriate button based on current_lane
         if current_lane and current_lane != "None":
-            # Check for regular lanes (1-4)
-            if current_lane in ['1', '2', '3', '4']:
-                for button in self.lane_buttons.buttons():
-                    button_text = button.text()
-                    if button_text == f'Lane {current_lane}':
-                        button.setChecked(True)
-                        break
+            # Check if we have a button for this lane
+            if current_lane in self.lane_button_map:
+                button = self.lane_button_map[current_lane]
+                button.setProperty("current", True)
+                button.style().unpolish(button)
+                button.style().polish(button)
+                
+                # For regular lanes (1-4), also set checked state
+                if current_lane in ['1', '2', '3', '4']:
+                    button.setChecked(True)
 
     def sync_to_timeline_position(self, timestamp: datetime, gps_coords: tuple):
         """Sync to timeline position - find closest image"""
