@@ -56,6 +56,7 @@ class SettingsManager:
             'image_cache_size': 500,   # MB
             'timeline_zoom_default': 10,
             'lane_assignment_mode': 'strict',  # 'strict' or 'permissive'
+            'auto_save_on_navigation': True,  # Auto-save when switching FileID folders
             'event_names': [
                 'Bridge',
                 'Pavers',

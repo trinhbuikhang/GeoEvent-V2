@@ -14,8 +14,7 @@ MAX_EVENT_LENGTHS = {
     "Speed Hump": 120,
     "Surface Contamination": 500,
     "Unsealed Road": 1000,
-    "Wet surface": 200,
-    "Railway Crossing": 100
+    "Wet surface": 200
 }
 
 def get_max_length_for_event(event_name: str) -> int:

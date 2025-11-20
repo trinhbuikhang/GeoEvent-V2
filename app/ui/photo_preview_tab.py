@@ -1042,6 +1042,8 @@ class PhotoPreviewTab(QWidget):
             # Nếu chưa có lane, thì gán trực tiếp
             success = self.lane_manager.assign_lane(lane_code, timestamp)
             logging.info(f"PhotoPreviewTab: standard lane_manager.assign_lane returned success={success}")
+            if success:
+                self.sync_lane_fixes_cache()  # Sync cache after direct lane assignment
 
         if success:
             self.update_lane_display()
@@ -1265,6 +1267,8 @@ class PhotoPreviewTab(QWidget):
             self._disable_lane_change_mode()
             self.update_lane_display()
             self.timeline.repaint()  # Force immediate timeline repaint to show applied lane changes
+            # Sync cache immediately after successful lane change
+            self.sync_lane_fixes_cache()
             logging.info(f"SUCCESS: Lane changed to {self.lane_change_new_lane} from {start_time.strftime('%H:%M:%S')} to {end_time.strftime('%H:%M:%S')}.")
         else:
             logging.error("PhotoPreviewTab: Lane change failed")
@@ -1664,3 +1668,9 @@ class PhotoPreviewTab(QWidget):
             # Force reinitialize minimap with new GPS data
             self._minimap_initialized = False
             self.update_minimap(lat, lon, bearing)
+
+    def sync_lane_fixes_cache(self):
+        """Sync lane fixes cache with current lane manager state"""
+        if hasattr(self, 'current_fileid') and self.current_fileid and self.lane_manager:
+            self.lane_fixes_per_fileid[self.current_fileid.fileid] = self.lane_manager.lane_fixes.copy()
+            logging.debug(f"Synced lane fixes cache for {self.current_fileid.fileid}: {len(self.lane_manager.lane_fixes)} fixes")

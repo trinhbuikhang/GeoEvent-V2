@@ -11,18 +11,39 @@ from typing import List
 from PyQt6.QtWidgets import (
     QMainWindow, QVBoxLayout, QWidget, QHBoxLayout,
     QSplitter, QStatusBar, QMenuBar, QToolBar,
-    QFileDialog, QMessageBox, QLabel
+    QFileDialog, QMessageBox, QLabel, QApplication
 )
-from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction, QActionGroup
-from PyQt6.QtWidgets import QApplication
-
+from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer
 from .ui.photo_preview_tab import PhotoPreviewTab
 from .utils.settings_manager import SettingsManager
 from .utils.fileid_manager import FileIDManager
 from .utils.user_guide import show_user_guide
 from .core.memory_manager import MemoryManager
 from .core.autosave_manager import AutoSaveManager
+from .ui.settings_dialog import SettingsDialog
+
+class BackgroundSaveWorker(QThread):
+    """
+    Worker thread for background save operations
+    """
+    save_completed = pyqtSignal(str, bool)  # (operation_name, success)
+
+    def __init__(self, save_func, *args, **kwargs):
+        super().__init__()
+        self.save_func = save_func
+        self.args = args
+        self.kwargs = kwargs
+
+    def run(self):
+        """Execute save operation in background thread"""
+        try:
+            result = self.save_func(*self.args, **self.kwargs)
+            self.save_completed.emit("save_operation", result)
+        except Exception as e:
+            logging.error(f"Background save failed: {e}")
+            self.save_completed.emit("save_operation", False)
+
 
 class MainWindow(QMainWindow):
     """
@@ -36,10 +57,14 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
+
         self.settings_manager = SettingsManager()
         self.fileid_manager = FileIDManager()
         self.memory_manager = MemoryManager()
         self.autosave_manager = AutoSaveManager()
+
+        # Reset settings to defaults on startup to avoid conflicts
+        self._reset_settings_on_startup()
 
         self.photo_tab = None
 
@@ -139,7 +164,9 @@ class MainWindow(QMainWindow):
 
         # Tools menu
         tools_menu = menubar.addMenu("Tools")
-        # Will add export and other tools
+        settings_action = QAction("Settings...", self)
+        settings_action.triggered.connect(self.show_settings_dialog)
+        tools_menu.addAction(settings_action)
 
         # Help menu
         help_menu = menubar.addMenu("Help")
@@ -220,9 +247,9 @@ class MainWindow(QMainWindow):
 
     def prev_fileid(self):
         """Navigate to previous FileID"""
-        # Auto-save current data before switching - DISABLED to avoid overwriting unchanged events
-        # self.auto_save_current_data()
-        
+        # Auto-save current data before switching (silent save)
+        self.auto_save_current_data_silent()
+
         prev_fileid = self.fileid_manager.prev_fileid()
         if prev_fileid:
             self.load_fileid(prev_fileid)
@@ -230,24 +257,34 @@ class MainWindow(QMainWindow):
 
     def next_fileid(self):
         """Navigate to next FileID"""
-        # Auto-save current data before switching - DISABLED to avoid overwriting unchanged events
-        # self.auto_save_current_data()
-        
+        # Auto-save current data before switching (silent save)
+        self.auto_save_current_data_silent()
+
         next_fileid = self.fileid_manager.next_fileid()
         if next_fileid:
             self.load_fileid(next_fileid)
             self.update_fileid_navigation()
 
-    def auto_save_current_data(self):
-        """Auto-save events and lane fixes for current FileID"""
+    def auto_save_current_data_silent(self):
+        """Auto-save current data silently in background thread"""
         if hasattr(self.photo_tab, 'current_fileid') and self.photo_tab.current_fileid:
+            # Start background save operations
+            self._start_background_save()
+
+    def _start_background_save(self):
+        """Start background save operations for current FileID"""
+        def save_operations():
+            """Perform all save operations and return overall success"""
+            overall_success = True
+
             # Save events if modified
             if self.photo_tab.events_modified:
                 success = self.photo_tab.save_all_events_internal()
                 if success:
-                    logging.info(f"Auto-saved {len(self.photo_tab.events)} modified events")
+                    logging.info(f"Auto-saved {len(self.photo_tab.events)} modified events for {self.photo_tab.current_fileid.fileid}")
                 else:
                     logging.error("Failed to auto-save modified events")
+                    overall_success = False
 
             # Save lane fixes if modified
             if hasattr(self.photo_tab, 'lane_manager') and self.photo_tab.lane_manager.has_changes:
@@ -258,6 +295,50 @@ class MainWindow(QMainWindow):
                     self.photo_tab.lane_manager.has_changes = False  # Reset after successful save
                 else:
                     logging.error("Failed to auto-save modified lane fixes")
+                    overall_success = False
+
+            # Update merged files after saving current FileID data
+            try:
+                self._merge_and_save_multi_fileid_data()
+                logging.info("Updated merged files after auto-save")
+            except Exception as e:
+                logging.error(f"Failed to update merged files: {e}")
+                overall_success = False
+
+            return overall_success
+
+        # Create and start background worker
+        self.save_worker = BackgroundSaveWorker(save_operations)
+        self.save_worker.save_completed.connect(self._on_save_completed)
+        self.save_worker.start()
+
+    def _on_save_completed(self, operation_name, success):
+        """Handle save completion signal"""
+        if operation_name == "save_operation":
+            if success:
+                logging.debug("Background save completed successfully")
+            else:
+                logging.warning("Background save completed with errors")
+
+        # Clean up worker
+        if hasattr(self, 'save_worker'):
+            self.save_worker.quit()
+            self.save_worker.wait()
+            self.save_worker = None
+
+    def _reset_settings_on_startup(self):
+        """Reset settings to defaults on application startup"""
+        import os
+        settings_file = os.path.expanduser('~/.geoevent/settings.json')
+        if os.path.exists(settings_file):
+            try:
+                os.remove(settings_file)
+                print('Reset settings to defaults on startup')
+            except Exception as e:
+                print(f'Warning: Could not reset settings file: {e}')
+
+            # Also merge and save all data to root folder
+            self._merge_and_save_multi_fileid_data()
 
     def auto_save_all_data_on_close(self):
         """Auto-save all data when closing app"""
@@ -363,36 +444,28 @@ class MainWindow(QMainWindow):
 
         root_folder = os.path.dirname(self.fileid_manager.fileid_list[0].path)
 
-        # Check if any data has changes
-        has_event_changes = False
-        has_lane_changes = False
-
-        for fileid_folder in self.fileid_manager.fileid_list:
-            # Check events for this FileID
-            if hasattr(self.photo_tab, 'current_fileid') and self.photo_tab.current_fileid == fileid_folder:
-                if self.photo_tab.events_modified:
-                    has_event_changes = True
-            # Check lane fixes for this FileID
-            try:
-                from .models.lane_model import LaneManager
-                temp_lane_manager = LaneManager()
-                temp_lane_manager.set_fileid_folder(fileid_folder.path)
-                if temp_lane_manager.has_changes:
-                    has_lane_changes = True
-            except:
-                pass
-
-        # Collect all data from FileID folders
+        # Always collect all data from cache and merge - don't check for changes
+        # since we want to ensure merged files are always up-to-date
         all_events = []
         all_lane_fixes = []
 
         for fileid_folder in self.fileid_manager.fileid_list:
-            # Load events for this FileID
-            fileid_events = self._load_events_for_fileid(fileid_folder)
+            # Load events from cache if available, otherwise from file
+            if fileid_folder.fileid in self.photo_tab.events_per_fileid:
+                fileid_events = self.photo_tab.events_per_fileid[fileid_folder.fileid]
+                logging.info(f"Using cached events for {fileid_folder.fileid}: {len(fileid_events)} events")
+            else:
+                fileid_events = self._load_events_for_fileid(fileid_folder)
+                logging.info(f"Loaded events from file for {fileid_folder.fileid}: {len(fileid_events)} events")
             all_events.extend(fileid_events)
 
-            # Load lane fixes for this FileID
-            fileid_lane_fixes = self._load_lane_fixes_for_fileid(fileid_folder)
+            # Load lane fixes from cache if available, otherwise from file
+            if fileid_folder.fileid in self.photo_tab.lane_fixes_per_fileid:
+                fileid_lane_fixes = self.photo_tab.lane_fixes_per_fileid[fileid_folder.fileid]
+                logging.info(f"Using cached lane fixes for {fileid_folder.fileid}: {len(fileid_lane_fixes)} fixes")
+            else:
+                fileid_lane_fixes = self._load_lane_fixes_for_fileid(fileid_folder)
+                logging.info(f"Loaded lane fixes from file for {fileid_folder.fileid}: {len(fileid_lane_fixes)} fixes")
             all_lane_fixes.extend(fileid_lane_fixes)
 
         # Save merged events to root folder if there are any events
@@ -658,6 +731,11 @@ class MainWindow(QMainWindow):
     def show_user_guide(self):
         """Show user guide dialog"""
         show_user_guide(self)
+
+    def show_settings_dialog(self):
+        """Show settings dialog"""
+        dialog = SettingsDialog(self, self.settings_manager)
+        dialog.exec()
 
     def show_about(self):
         """Show about dialog"""
