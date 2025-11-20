@@ -7,7 +7,7 @@ import pytest
 import os
 import tempfile
 import shutil
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -94,22 +94,95 @@ class TestLaneModel:
         assert self.manager.lane_fixes[-1].lane == "SK1"
 
     def test_assign_tk_tm_lane(self):
-        """Test TK/TM (turn) lane assignment"""
+        """Test TK/TM (turn) lane assignment - now direct assignments"""
         timestamp1 = datetime(2025, 10, 2, 8, 0, 0, tzinfo=timezone.utc)
         timestamp2 = datetime(2025, 10, 2, 8, 5, 0, tzinfo=timezone.utc)
         timestamp3 = datetime(2025, 10, 2, 8, 10, 0, tzinfo=timezone.utc)
 
-        # Assign lane 1 first
-        self.manager.assign_lane("1", timestamp1)
-        # Then assign TK - should become TK1
-        result = self.manager.assign_lane("TK", timestamp2)
+        # Assign TK1 directly
+        result = self.manager.assign_lane("TK1", timestamp1)
         assert result is True
         assert self.manager.lane_fixes[-1].lane == "TK1"
 
-        # Assign TM - since current lane is TK1 (not 1-4), it stays TM
-        result = self.manager.assign_lane("TM", timestamp3)
+        # Assign TM2 directly
+        result = self.manager.assign_lane("TM2", timestamp2)
         assert result is True
-        assert self.manager.lane_fixes[-1].lane == "TM"
+        assert self.manager.lane_fixes[-1].lane == "TM2"
+
+        # Assign TK3 directly
+        result = self.manager.assign_lane("TK3", timestamp3)
+        assert result is True
+        assert self.manager.lane_fixes[-1].lane == "TK3"
+
+    def test_lane_change_smart_same_lane_update_end(self):
+        """Test smart lane change with same lane but different end time"""
+        timestamp1 = datetime(2025, 10, 2, 8, 0, 0, tzinfo=timezone.utc)
+        timestamp2 = datetime(2025, 10, 2, 8, 5, 0, tzinfo=timezone.utc)
+        custom_end = datetime(2025, 10, 2, 8, 3, 0, tzinfo=timezone.utc)
+
+        # First assign lane 1
+        self.manager.assign_lane("1", timestamp1)
+
+        # Get the original end time
+        original_end = self.manager.lane_fixes[0].to_time
+
+        # Now try to change to same lane "1" but with custom end time
+        result = self.manager.change_lane_smart("1", timestamp1, lambda **kwargs: 'custom', custom_end_time=custom_end)
+        assert result is True
+
+        # Check that the period was split into two
+        assert len(self.manager.lane_fixes) == 2
+        # First period: from timestamp1 to custom_end
+        assert self.manager.lane_fixes[0].lane == "1"
+        assert self.manager.lane_fixes[0].from_time == timestamp1
+        assert self.manager.lane_fixes[0].to_time == custom_end
+        # Second period: from custom_end to original_end
+        assert self.manager.lane_fixes[1].lane == "1"
+        assert self.manager.lane_fixes[1].from_time == custom_end
+        assert self.manager.lane_fixes[1].to_time == original_end
+
+    def test_lane_change_smart_different_lane(self):
+        """Test smart lane change to different lane"""
+        timestamp1 = datetime(2025, 10, 2, 8, 0, 0, tzinfo=timezone.utc)
+        custom_end = datetime(2025, 10, 2, 8, 3, 0, tzinfo=timezone.utc)
+
+        # First assign lane 1
+        self.manager.assign_lane("1", timestamp1)
+
+        # Change to lane 2 with custom end
+        result = self.manager.change_lane_smart("2", timestamp1, lambda **kwargs: 'custom', custom_end_time=custom_end)
+        assert result is True
+
+        # Check that periods were split correctly
+        assert len(self.manager.lane_fixes) == 2
+        # First period: lane 2 from timestamp1 to custom_end
+        assert self.manager.lane_fixes[0].lane == "2"
+        assert self.manager.lane_fixes[0].from_time == timestamp1
+        assert self.manager.lane_fixes[0].to_time == custom_end
+        # Second period: lane 1 from custom_end to end
+        assert self.manager.lane_fixes[1].lane == "1"
+        assert self.manager.lane_fixes[1].from_time == custom_end
+
+    def test_lane_change_smart_custom_end_clamping(self):
+        """Test that custom_end_time is clamped to not exceed existing periods"""
+        timestamp1 = datetime(2025, 10, 2, 8, 0, 0, tzinfo=timezone.utc)
+        # Assign lane 1 first
+        self.manager.assign_lane("1", timestamp1)
+        
+        # Get the end time of the created period
+        period_end = self.manager.lane_fixes[0].to_time
+        
+        # Try to change with custom_end beyond the period end
+        custom_end_beyond = period_end + timedelta(minutes=5)
+        
+        result = self.manager.change_lane_smart("2", timestamp1, lambda **kwargs: 'custom', custom_end_time=custom_end_beyond)
+        assert result is True
+        
+        # Check that the change was clamped to period_end
+        assert len(self.manager.lane_fixes) == 1  # Only one period, fully changed
+        assert self.manager.lane_fixes[0].lane == "2"
+        assert self.manager.lane_fixes[0].from_time == timestamp1
+        assert self.manager.lane_fixes[0].to_time == period_end  # Clamped to original end
 
     def test_assign_ignore(self):
         """Test ignore assignment"""

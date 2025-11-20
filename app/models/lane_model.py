@@ -113,13 +113,24 @@ class LaneManager:
         return True
 
     def _resolve_lane_code(self, lane_code: str, reference_lane: str = None) -> str:
-        """Resolve special lane codes like SK, TK, TM based on reference lane"""
-        if lane_code in ['SK', 'TK', 'TM']:
-            # These lanes use reference lane number (SK1, TK2, TM3, etc.)
-            if reference_lane and reference_lane in ['1', '2', '3', '4']:
-                return f"{lane_code}{reference_lane}"
+        """Resolve special lane codes like SK based on reference lane"""
+        if lane_code == 'SK':
+            # SK uses reference lane number (SK1, SK2, SK3, etc.)
+            # Extract lane number from reference lane (could be '1', 'TK1', 'TM2', etc.)
+            lane_number = None
+            if reference_lane:
+                if reference_lane in ['1', '2', '3', '4']:
+                    lane_number = reference_lane
+                elif len(reference_lane) >= 3 and reference_lane[:2] in ['TK', 'TM'] and reference_lane[2] in ['1', '2', '3', '4']:
+                    lane_number = reference_lane[2]
+                elif len(reference_lane) >= 3 and reference_lane[:2] == 'SK' and reference_lane[2] in ['1', '2', '3', '4']:
+                    lane_number = reference_lane[2]
+
+            if lane_number:
+                return f"{lane_code}{lane_number}"
             else:
                 return lane_code
+        # TK and TM are now direct codes (TK1, TK2, TM1, TM2, etc.)
         return lane_code
 
     def change_lane_smart(self, new_lane_code: str, timestamp: datetime, user_choice_callback=None, custom_end_time: datetime = None) -> bool:
@@ -137,10 +148,6 @@ class LaneManager:
             logging.warning(f"No lane found at timestamp {timestamp}")
             return False
 
-        if current_lane_at_time == new_lane_code:
-            logging.info("Same lane, no change needed")
-            return True
-
         # Find the lane fix record for this period
         target_fix = None
         for fix in self.lane_fixes:
@@ -151,6 +158,28 @@ class LaneManager:
         if not target_fix:
             logging.error(f"Could not find lane fix record for timestamp {timestamp}")
             return False
+
+        if current_lane_at_time == new_lane_code:
+            if custom_end_time and custom_end_time != target_fix.to_time:
+                # For same lane with custom end time, split the period
+                original_end = target_fix.to_time
+                # Update current period end to custom_end_time
+                target_fix.to_time = custom_end_time
+                # Create new period from custom_end_time to original_end with same lane
+                new_period = LaneFix(
+                    plate=self.plate,
+                    from_time=custom_end_time,
+                    to_time=original_end,
+                    lane=target_fix.lane,
+                    ignore=target_fix.ignore,
+                    file_id=self.fileid_folder.name
+                )
+                self.lane_fixes.append(new_period)
+                # Do not merge for same lane splits to preserve the split
+                return True
+            else:
+                logging.info("Same lane, no change needed")
+                return True
 
         # Resolve special lane codes based on current lane
         resolved_new_lane = self._resolve_lane_code(new_lane_code, target_fix.lane)
@@ -288,17 +317,6 @@ class LaneManager:
                 ignore=target_fix.ignore,  # Preserve original ignore flag
                 file_id=self.fileid_folder.name
             )
-    def start_turn(self, turn_type: str, timestamp: datetime, selected_lane: str):
-        """Start turn period - now just calls assign_lane"""
-        turn_lane = f"{turn_type}{selected_lane}"
-        return self.assign_lane(turn_lane, timestamp)
-
-    def end_turn(self, timestamp: datetime):
-        """End turn period - no longer needed with unified lane system"""
-        pass
-
-        self.has_changes = True
-
     def assign_sk(self, timestamp: datetime) -> bool:
         """Assign shoulder lane (SK) at given timestamp"""
         return self.assign_lane('SK', timestamp)
@@ -569,6 +587,13 @@ class LaneManager:
         # Sort by from_time
         overlapping_fixes.sort(key=lambda x: x.from_time)
         
+        # Clamp end_time to not exceed the last overlapping period's end time
+        if overlapping_fixes:
+            max_end_time = max(fix.to_time for fix in overlapping_fixes)
+            if end_time > max_end_time:
+                logging.info(f"Clamping end_time from {end_time} to {max_end_time}")
+                end_time = max_end_time
+        
         # Create new periods
         new_fixes = []
         
@@ -640,9 +665,6 @@ class LaneManager:
         
         # Replace overlapping fixes with new fixes
         self.lane_fixes = [fix for fix in self.lane_fixes if fix not in overlapping_fixes] + new_fixes
-        
-        # Merge adjacent periods with the same lane
-        self._merge_adjacent_same_lane_periods()
         
         self.has_changes = True
         return True

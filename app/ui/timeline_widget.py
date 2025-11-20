@@ -1058,10 +1058,21 @@ class TimelineWidget(QWidget):
         logging.info(f"TimelineWidget: Lane change button clicked: {button_type}")
 
         if button_type == 'yes':
+            logging.info("TimelineWidget: Yes button clicked, checking photo_tab")
             # Apply the lane change
-            if self.photo_tab and hasattr(self.photo_tab, '_apply_lane_change'):
-                logging.info("TimelineWidget: Applying lane change")
-                self.photo_tab._apply_lane_change()
+            if self.photo_tab:
+                logging.info("TimelineWidget: photo_tab exists")
+                if hasattr(self.photo_tab, '_apply_lane_change'):
+                    logging.info("TimelineWidget: _apply_lane_change method exists")
+                    try:
+                        self.photo_tab._apply_lane_change()
+                        logging.info("TimelineWidget: _apply_lane_change completed")
+                    except Exception as e:
+                        logging.error(f"TimelineWidget: Error calling _apply_lane_change: {e}")
+                else:
+                    logging.error("TimelineWidget: _apply_lane_change method not found")
+            else:
+                logging.error("TimelineWidget: photo_tab is None")
         elif button_type == 'cancel':
             # Cancel and exit mode with revert
             logging.info("TimelineWidget: Cancelling lane change")

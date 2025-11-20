@@ -111,8 +111,11 @@ class PhotoPreviewTab(QWidget):
         # Lane change mode using current position marker
         self.lane_change_mode_active = False
         self.lane_change_new_lane = None
+        self.lane_change_current_lane = None
         self.lane_change_start_timestamp = None
         self.lane_change_end_timestamp = None
+        self.lane_change_auto_end_timestamp = None
+        self.lane_change_original_lane = None
 
         # Global lane button group (exclusive)
         self.lane_buttons = QButtonGroup(self)
@@ -346,65 +349,67 @@ class PhotoPreviewTab(QWidget):
 
         parent_layout.addLayout(lane_row)
 
-        # Row 2: TK, TM, SK, Ignore buttons
+        # Row 2: TK1-TK4 buttons
+        tk_row = QHBoxLayout()
+        tk_row.setSpacing(5)
+        tk_codes = ['TK1', 'TK2', 'TK3', 'TK4']
+        
+        for code in tk_codes:
+            btn = QPushButton(code)
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #1976D2;
+                    color: white;
+                    border: 1px solid #0D47A1;
+                    padding: 5px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #1565C0;
+                }
+                QPushButton:pressed {
+                    background-color: #0D47A1;
+                }
+            """)
+            btn.clicked.connect(lambda checked, c=code: self.assign_lane(c))
+            btn.setMinimumHeight(35)
+            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            tk_row.addWidget(btn)
+
+        parent_layout.addLayout(tk_row)
+
+        # Row 3: TM1-TM4 buttons
+        tm_row = QHBoxLayout()
+        tm_row.setSpacing(5)
+        tm_codes = ['TM1', 'TM2', 'TM3', 'TM4']
+        
+        for code in tm_codes:
+            btn = QPushButton(code)
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #1976D2;
+                    color: white;
+                    border: 1px solid #0D47A1;
+                    padding: 5px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #1565C0;
+                }
+                QPushButton:pressed {
+                    background-color: #0D47A1;
+                }
+            """)
+            btn.clicked.connect(lambda checked, c=code: self.assign_lane(c))
+            btn.setMinimumHeight(35)
+            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            tm_row.addWidget(btn)
+
+        parent_layout.addLayout(tm_row)
+
+        # Row 4: SK, Ignore buttons
         control_row = QHBoxLayout()
         control_row.setSpacing(5)
-        
-        # Turn Left button (TK)
-        self.turn_left_btn = QPushButton("TK ↰")
-        self.turn_left_btn.setCheckable(True)
-        self.turn_left_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #1976D2;
-                color: white;
-                border: 1px solid #0D47A1;
-                padding: 5px;
-                font-weight: bold;
-            }
-            QPushButton:checked {
-                background-color: #FFF9C4;
-                color: black;
-                border: 2px solid #FBC02D;
-            }
-            QPushButton:hover {
-                background-color: #1565C0;
-            }
-            QPushButton:checked:hover {
-                background-color: #FFF59D;
-            }
-        """)
-        self.turn_left_btn.clicked.connect(lambda: self.start_turn('TK'))
-        self.turn_left_btn.setMinimumHeight(35)
-        self.turn_left_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        control_row.addWidget(self.turn_left_btn)
-
-        # Turn Right button (TM)
-        self.turn_right_btn = QPushButton("TM ↱")
-        self.turn_right_btn.setCheckable(True)
-        self.turn_right_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #1976D2;
-                color: white;
-                border: 1px solid #0D47A1;
-                padding: 5px;
-                font-weight: bold;
-            }
-            QPushButton:checked {
-                background-color: #FFF9C4;
-                color: black;
-                border: 2px solid #FBC02D;
-            }
-            QPushButton:hover {
-                background-color: #1565C0;
-            }
-            QPushButton:checked:hover {
-                background-color: #FFF59D;
-            }
-        """)
-        self.turn_right_btn.clicked.connect(lambda: self.start_turn('TM'))
-        self.turn_right_btn.setMinimumHeight(35)
-        self.turn_right_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        control_row.addWidget(self.turn_right_btn)
 
         # SK button (Shoulder)
         self.sk_btn = QPushButton("SK")
@@ -651,8 +656,6 @@ class PhotoPreviewTab(QWidget):
             # Reset lane button states when switching FileID
             for button in self.lane_buttons.buttons():
                 button.setChecked(False)
-            self.turn_right_btn.setChecked(False)
-            self.turn_left_btn.setChecked(False)
             self.update_lane_display()
 
         except Exception as e:
@@ -1048,6 +1051,27 @@ class PhotoPreviewTab(QWidget):
         self.timeline.disable_lane_change_mode()
         
 
+    def _disable_lane_change_mode(self):
+        """Disable lane change mode without reverting changes"""
+        logging.info("PhotoPreviewTab: _disable_lane_change_mode called")
+        
+        # Clear lane change state
+        self.lane_change_mode_active = False
+        self.lane_change_new_lane = None
+        self.lane_change_start_timestamp = None
+        self.lane_change_end_timestamp = None
+        self.lane_change_auto_end_timestamp = None
+        self.lane_change_original_lane = None
+        
+        # Disable lane change mode on timeline
+        self.timeline.disable_lane_change_mode()
+        
+        # Update display
+        self.update_lane_display()
+        self.timeline.repaint()
+        if hasattr(self.timeline, 'timeline_area'):
+            self.timeline.timeline_area.repaint()
+
     def _apply_lane_change(self):
         """Apply lane change using current end timestamp (updated by dragging)"""
         if not self.lane_change_mode_active:
@@ -1066,9 +1090,11 @@ class PhotoPreviewTab(QWidget):
         start_time = self.lane_change_start_timestamp
         end_time = self.lane_change_end_timestamp
 
+        logging.info(f"PhotoPreviewTab: Applying lane change from {start_time} to {end_time}")
+
         if start_time >= end_time:
-            logging.warning("PhotoPreviewTab: Invalid time range for lane change")
-            QMessageBox.warning(self, "Invalid Range", "End time must be after start time.")
+            logging.warning(f"PhotoPreviewTab: Invalid time range: start {start_time} >= end {end_time}")
+            logging.error("ERROR: End time must be after start time.")
             return
 
         # Check if user has modified the end time from auto-calculated
@@ -1077,12 +1103,19 @@ class PhotoPreviewTab(QWidget):
         if user_modified:
             logging.info(f"PhotoPreviewTab: User modified end time - auto: {self.lane_change_auto_end_timestamp}, user: {end_time}")
             # Apply the lane change with user-specified end time
-            success = self.lane_manager.change_lane_smart(
+            success = self.lane_manager.apply_lane_change_range(
                 self.lane_change_new_lane,
                 start_time,
-                lambda **kwargs: 'custom',
-                custom_end_time=end_time
+                end_time
             )
+            # Fix the remaining period from end_time to auto_end to use original lane
+            if success and end_time < self.lane_change_auto_end_timestamp:
+                for fix in self.lane_manager.lane_fixes:
+                    if fix.from_time == end_time and fix.to_time == self.lane_change_auto_end_timestamp:
+                        fix.lane = self.lane_change_original_lane
+                        fix.ignore = (self.lane_change_original_lane == '')
+                        logging.info(f"PhotoPreviewTab: Fixed remaining period {end_time} to {self.lane_change_auto_end_timestamp} to original lane {self.lane_change_original_lane}")
+                        break
         else:
             logging.info(f"PhotoPreviewTab: Using auto-calculated end time: {end_time}")
             # Auto-apply already done, just confirm
@@ -1090,15 +1123,16 @@ class PhotoPreviewTab(QWidget):
 
         if success:
             logging.info(f"PhotoPreviewTab: Lane change applied - {self.lane_change_new_lane} from {start_time} to {end_time}")
+            # Exit lane change mode BEFORE updating display
+            self._disable_lane_change_mode()
             self.update_lane_display()
             self.timeline.repaint()  # Force immediate timeline repaint to show applied lane changes
-            QMessageBox.information(self, "Success", f"Lane changed to {self.lane_change_new_lane} from {start_time.strftime('%H:%M:%S')} to {end_time.strftime('%H:%M:%S')}.")
+            logging.info(f"SUCCESS: Lane changed to {self.lane_change_new_lane} from {start_time.strftime('%H:%M:%S')} to {end_time.strftime('%H:%M:%S')}.")
         else:
             logging.error("PhotoPreviewTab: Lane change failed")
-            QMessageBox.warning(self, "Error", "Failed to apply lane change.")
+            logging.error("ERROR: Failed to apply lane change.")
 
-        # Exit lane change mode
-        self._exit_lane_change_mode()
+        # Exit lane change mode (moved above for success case)
 
     def assign_sk(self):
         """Assign shoulder lane (SK) at current position"""
@@ -1110,70 +1144,6 @@ class PhotoPreviewTab(QWidget):
         logging.info("PhotoPreviewTab: assign_ignore called")
         self.assign_lane('')
 
-    def start_turn(self, turn_type: str):
-        """Start turn period or end if already active"""
-        logging.info(f"PhotoPreviewTab: start_turn called with turn_type='{turn_type}'")
-        if not self.current_metadata or 'timestamp' not in self.current_metadata:
-            logging.warning("PhotoPreviewTab: start_turn failed - no current metadata")
-            QMessageBox.warning(
-                self, "Turn Start Failed",
-                f"Cannot start turn period.\n\n"
-                f"Reason: No current image metadata available.\n\n"
-                f"Please ensure an image is selected."
-            )
-            return
-
-        if not self.lane_manager:
-            logging.warning("PhotoPreviewTab: start_turn failed - no lane_manager")
-            QMessageBox.warning(
-                self, "Turn Start Failed",
-                f"Cannot start turn period.\n\n"
-                f"Reason: Lane manager not initialized.\n\n"
-                f"Please load a FileID first."
-            )
-            return
-
-        timestamp = self.current_metadata['timestamp']
-
-        # Get selected lane from button group
-        selected_lane = None
-        checked_button = self.lane_buttons.checkedButton()
-        if checked_button:
-            button_text = checked_button.text()
-            if button_text == 'Lane 1':
-                selected_lane = '1'
-            elif button_text == 'Lane 2':
-                selected_lane = '2'
-            elif button_text == 'Lane 3':
-                selected_lane = '3'
-            elif button_text == 'Lane 4':
-                selected_lane = '4'
-        
-        logging.info(f"PhotoPreviewTab: checked_button='{checked_button.text() if checked_button else None}', selected_lane='{selected_lane}'")
-
-        # If no button selected, use current lane if it's a lane number
-        if not selected_lane and self.lane_manager.current_lane:
-            current = self.lane_manager.current_lane
-            if current in ['1', '2', '3', '4']:
-                selected_lane = current
-                logging.info(f"PhotoPreviewTab: No button selected, using current_lane='{selected_lane}'")
-
-        # Validate that we have a lane selected for turn
-        if not selected_lane:
-            logging.warning("PhotoPreviewTab: start_turn failed - no lane selected for turn")
-            QMessageBox.warning(
-                self, "Turn Start Failed",
-                f"Cannot start {turn_type} turn period.\n\n"
-                f"Reason: No lane selected.\n\n"
-                f"Please select a lane (1-4) before starting a turn.\n\n"
-                f"Time: {timestamp.strftime('%H:%M:%S')}\n"
-                f"Plate: {self.current_metadata.get('plate', 'Unknown')}"
-            )
-            return
-
-        logging.info(f"PhotoPreviewTab: Final selected_lane='{selected_lane}', calling assign_lane with '{turn_type}{selected_lane}'")
-        self.assign_lane(f'{turn_type}{selected_lane}')
-
     def update_lane_display(self):
         """Update current lane display based on current timestamp"""
         if not self.lane_manager:
@@ -1181,8 +1151,6 @@ class PhotoPreviewTab(QWidget):
             # Reset all lane buttons
             for button in self.lane_buttons.buttons():
                 button.setChecked(False)
-            self.turn_right_btn.setChecked(False)
-            self.turn_left_btn.setChecked(False)
             return
 
         current_lane = self.lane_manager.current_lane or "None"
@@ -1205,10 +1173,6 @@ class PhotoPreviewTab(QWidget):
         # Reset all lane buttons first
         for button in self.lane_buttons.buttons():
             button.setChecked(False)
-        
-        # Reset turn buttons
-        self.turn_right_btn.setChecked(False)
-        self.turn_left_btn.setChecked(False)
 
         # Set appropriate button based on current_lane
         if current_lane and current_lane != "None":
@@ -1219,20 +1183,6 @@ class PhotoPreviewTab(QWidget):
                     if button_text == f'Lane {current_lane}':
                         button.setChecked(True)
                         break
-            # Check for turn lanes (TK1, TM2, etc.)
-            elif len(current_lane) >= 2 and current_lane[:2] in ['TK', 'TM']:
-                turn_type = current_lane[:2]
-                if turn_type == 'TM':
-                    self.turn_right_btn.setChecked(True)
-                elif turn_type == 'TK':
-                    self.turn_left_btn.setChecked(True)
-                # Also check the lane button if there's a lane number
-                if len(current_lane) >= 3 and current_lane[2] in ['1', '2', '3', '4']:
-                    lane_num = current_lane[2]
-                    for button in self.lane_buttons.buttons():
-                        if button.text() == f'Lane {lane_num}':
-                            button.setChecked(True)
-                            break
 
     def sync_to_timeline_position(self, timestamp: datetime, gps_coords: tuple):
         """Sync to timeline position - find closest image"""
