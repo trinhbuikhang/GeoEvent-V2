@@ -18,9 +18,11 @@ from PyQt6.QtWebEngineWidgets import QWebEngineView
 from ..models.event_model import Event
 from ..models.gps_model import GPSData
 from ..models.lane_model import LaneManager
+from ..models.event_config import get_max_length_for_event
 from ..utils.data_loader import DataLoader
 from ..utils.image_utils import extract_image_metadata
 from ..utils.export_manager import ExportManager
+from ..utils.minimap_overlay import MinimapOverlay
 from .timeline_widget import TimelineWidget
 
 class LaneChangeDialog(QDialog):
@@ -107,6 +109,9 @@ class PhotoPreviewTab(QWidget):
         self.lane_managers_per_fileid = {}  # Store lane managers per FileID to preserve changes across switches
         self.lane_fixes_per_fileid = {}  # Store lane_fixes lists per FileID to preserve changes
         self.current_fileid = None  # Current FileID being displayed
+
+        # Current position for warnings
+        self.current_timestamp = None
 
         # Lane change mode using current position marker
         self.lane_change_mode_active = False
@@ -580,11 +585,15 @@ class PhotoPreviewTab(QWidget):
             if event.event_id == event_id:
                 for key, value in changes.items():
                     setattr(event, key, value)
+                # Update chainage and GPS coordinates after time changes
+                self._update_event_gps_data(event)
                 break
         self.events_modified = True
         # Cache modified events for this FileID
         if self.current_fileid:
             self.events_per_fileid[self.current_fileid.fileid] = self.events
+        # Update folder info to refresh warnings
+        self.update_folder_info_display()
         # Use timeline_area.update() instead of timeline.update()
         if hasattr(self.timeline, 'timeline_area'):
             self.timeline.timeline_area.update()
@@ -621,6 +630,10 @@ class PhotoPreviewTab(QWidget):
     def on_lane_change_position_changed(self, timestamp: datetime):
         """Handle lane change position changed during drag"""
         logging.debug(f"PhotoPreviewTab: Lane change position changed to {timestamp}")
+        # Update current timestamp for warnings
+        self.current_timestamp = timestamp
+        # Update folder info to show warnings
+        self.update_folder_info_display()
         # Update the lane change end timestamp
         if hasattr(self, 'lane_change_start_timestamp') and self.lane_change_start_timestamp:
             # Store the dragged timestamp for later use in lane change application
@@ -740,7 +753,48 @@ class PhotoPreviewTab(QWidget):
                 last_time = metadata['last_image_timestamp'].strftime('%Y-%m-%d %H:%M:%S')
                 info_text += f"<b>Last:</b> {last_time}"
 
+            # Check for event length warnings
+            exceeded_events = [event for event in self.events if event.is_length_exceeded]
+            if exceeded_events:
+                for event in exceeded_events:
+                    max_length = self._get_max_length_for_event(event.event_name)
+                    info_text += f"<br><font color='red'><b>WARNING:</b> {event.event_name} length ({event.length_meters:.1f}m) exceeds maximum ({max_length}m)</font>"
+
             self.folder_info_label.setText(info_text)
+
+    def _get_event_at_timestamp(self, timestamp: datetime) -> Optional[Event]:
+        """Get event that contains the given timestamp"""
+        for event in self.events:
+            if event.start_time <= timestamp <= event.end_time:
+                return event
+        return None
+
+    def _get_max_length_for_event(self, event_name: str) -> int:
+        """Get maximum length for event type"""
+        return get_max_length_for_event(event_name) or 0
+
+    def _update_event_gps_data(self, event: Event):
+        """Update GPS coordinates and chainage for an event based on its timestamps"""
+        if not self.gps_data:
+            return
+
+        # Update start position and chainage
+        start_pos = self.gps_data.interpolate_position(event.start_time)
+        if start_pos:
+            event.start_lat, event.start_lon = start_pos
+
+        start_chainage = self.gps_data.interpolate_chainage(event.start_time)
+        if start_chainage is not None:
+            event.start_chainage = start_chainage
+
+        # Update end position and chainage
+        end_pos = self.gps_data.interpolate_position(event.end_time)
+        if end_pos:
+            event.end_lat, event.end_lon = end_pos
+
+        end_chainage = self.gps_data.interpolate_chainage(event.end_time)
+        if end_chainage is not None:
+            event.end_chainage = end_chainage
 
     def navigate_to_image(self, index: int):
         """Navigate to specific image index"""
@@ -1271,6 +1325,10 @@ class PhotoPreviewTab(QWidget):
     def sync_to_timeline_position(self, timestamp: datetime, gps_coords: tuple):
         """Sync to timeline position - find closest image"""
         logging.info(f"PhotoPreviewTab: sync_to_timeline_position called with timestamp={timestamp}")
+        # Update current timestamp for warnings
+        self.current_timestamp = timestamp
+        # Update folder info display
+        self.update_folder_info_display()
         if not self.image_paths:
             logging.warning("PhotoPreviewTab: No image paths for sync")
             return
@@ -1480,6 +1538,9 @@ class PhotoPreviewTab(QWidget):
 
             // Add marker with bearing
             var marker = L.marker([{lat}, {lon}], {{icon: bearingIcon}}).addTo(map);
+
+            // Add path overlay if GPS data available
+            {MinimapOverlay.generate_path_overlay(self.gps_data)}
 
             // Add coordinate display
             var coordControl = L.control({{position: 'bottomleft'}});

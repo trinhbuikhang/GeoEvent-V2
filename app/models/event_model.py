@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
 
+from .event_config import is_event_length_exceeded
+
 @dataclass
 class Event:
     """
@@ -34,6 +36,11 @@ class Event:
     def length_meters(self) -> float:
         """Calculate event length in meters"""
         return self.end_chainage - self.start_chainage
+
+    @property
+    def is_length_exceeded(self) -> bool:
+        """Check if event length exceeds maximum allowed"""
+        return is_event_length_exceeded(self.event_name, self.length_meters)
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization"""

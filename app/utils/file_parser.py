@@ -305,17 +305,16 @@ def enrich_events_with_gps(events: List[Event], gps_data: GPSData) -> None:
             enriched = True
 
         # Sử dụng None để đánh dấu chainage chưa set, tránh ghi đè giá trị 0 hợp lệ
-        if getattr(event, 'start_chainage', None) is None:
-            start_chainage = gps_data.interpolate_chainage(event.start_time)
-            if start_chainage is not None:
-                event.start_chainage = start_chainage
-                enriched = True
+        # Always update chainage when GPS data is available (for edited events)
+        start_chainage = gps_data.interpolate_chainage(event.start_time)
+        if start_chainage is not None:
+            event.start_chainage = start_chainage
+            enriched = True
 
-        if getattr(event, 'end_chainage', None) is None:
-            end_chainage = gps_data.interpolate_chainage(event.end_time)
-            if end_chainage is not None:
-                event.end_chainage = end_chainage
-                enriched = True
+        end_chainage = gps_data.interpolate_chainage(event.end_time)
+        if end_chainage is not None:
+            event.end_chainage = end_chainage
+            enriched = True
 
         if enriched:
             enriched_count += 1
