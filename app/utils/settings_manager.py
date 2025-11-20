@@ -65,7 +65,8 @@ class SettingsManager:
                 'Surface Contamination',
                 'Wet Surface',
                 'Unsealed Road',
-                'Cattle Grid'
+                'Cattle Grid',
+                'Railway Crossing'
             ]
         }
 

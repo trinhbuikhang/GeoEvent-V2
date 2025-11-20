@@ -31,7 +31,7 @@ class MinimapOverlay:
 
         # Sample coordinates to improve performance
         # Limit to maximum 100 points for the overlay
-        max_points = 100
+        max_points = 1000
         if len(coordinates) > max_points:
             # Sample evenly across the path
             step = len(coordinates) // max_points

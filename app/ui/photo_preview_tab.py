@@ -666,6 +666,9 @@ class PhotoPreviewTab(QWidget):
             self.image_paths = data['image_paths']
             self.fileid_metadata = data['metadata']
             
+            # Reset minimap when switching FileID to clear old path overlay
+            self._minimap_initialized = False
+            
             # Always use a fresh lane manager from data
             self.lane_manager = data['lane_manager']
             plate = data['metadata'].get('plate', 'Unknown')
@@ -700,6 +703,9 @@ class PhotoPreviewTab(QWidget):
 
                 # Update folder info display
                 self.update_folder_info_display()
+
+                # Force update minimap with new GPS data (defer to ensure UI is ready)
+                QTimer.singleShot(100, lambda: self._force_minimap_update())
             else:
                 logging.warning("PhotoPreviewTab: No images found in FileID")
             
@@ -1485,7 +1491,7 @@ class PhotoPreviewTab(QWidget):
         # Ensure bearing is a number
         if bearing is None or bearing == '--':
             bearing = 0
-        
+
         try:
             bearing = float(bearing)
         except (ValueError, TypeError):
@@ -1494,6 +1500,16 @@ class PhotoPreviewTab(QWidget):
         # Normalize bearing to 0-360 range
         bearing = bearing % 360
 
+        # Check if minimap is already initialized
+        if not hasattr(self, '_minimap_initialized') or not self._minimap_initialized:
+            # Initialize minimap for the first time
+            self._initialize_minimap(lat, lon, bearing)
+        else:
+            # Update existing minimap position
+            self._update_minimap_position(lat, lon, bearing)
+
+    def _initialize_minimap(self, lat: float, lon: float, bearing: float):
+        """Initialize the minimap for the first time"""
         # Create HTML content for Leaflet map
         html_content = f"""
     <!DOCTYPE html>
@@ -1533,8 +1549,13 @@ class PhotoPreviewTab(QWidget):
     <body>
         <div id="map"></div>
         <script>
+            // Global variables to persist across updates
+            var map = null;
+            var marker = null;
+            var coordDiv = null;
+
             // Initialize map
-            var map = L.map('map').setView([{lat}, {lon}], 18);
+            map = L.map('map').setView([{lat}, {lon}], 18);
 
             // Add OpenStreetMap tiles
             L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
@@ -1542,29 +1563,51 @@ class PhotoPreviewTab(QWidget):
                 maxZoom: 19
             }}).addTo(map);
 
-            // Create custom marker with bearing arrow
-            // Triangle points up (▲) at 0°, rotates clockwise
-            var bearingIcon = L.divIcon({{
-                html: '<div style="transform: rotate({bearing}deg); font-size: 32px; color: #ff0000; text-shadow: 2px 2px 3px rgba(255,255,255,0.9), -1px -1px 1px rgba(0,0,0,0.6); font-weight: bold; line-height: 1;">▲</div>',
-                className: 'bearing-marker',
-                iconSize: [32, 32],
-                iconAnchor: [16, 16]  // Center the icon
-            }});
-
-            // Add marker with bearing
-            var marker = L.marker([{lat}, {lon}], {{icon: bearingIcon}}).addTo(map);
-
             // Add path overlay if GPS data available
-            {MinimapOverlay.generate_path_overlay(self.gps_data)}
+            {MinimapOverlay.generate_path_overlay(self.gps_data) if (self.gps_data and hasattr(self.gps_data, 'points') and len(self.gps_data.points) > 0) else ""}
+
+            // Mark that path has been added if GPS data exists
+            {f"window.pathAdded = true;" if (self.gps_data and hasattr(self.gps_data, 'points') and len(self.gps_data.points) > 0) else "window.pathAdded = false;"}
 
             // Add coordinate display
             var coordControl = L.control({{position: 'bottomleft'}});
             coordControl.onAdd = function(map) {{
                 var div = L.DomUtil.create('div', 'coord-control');
-                div.innerHTML = '<div>Lat: {lat:.6f}<br>Lon: {lon:.6f}<br>Bearing: {bearing:.1f}°</div>';
+                coordDiv = div;
                 return div;
             }};
             coordControl.addTo(map);
+
+            // Create initial marker
+            updateMarker({lat}, {lon}, {bearing});
+            updateCoordinates({lat}, {lon}, {bearing});
+
+            function updateMarker(lat, lon, bearing) {{
+                // Create custom marker with bearing arrow
+                var bearingIcon = L.divIcon({{
+                    html: '<div style="transform: rotate(' + bearing + 'deg); font-size: 32px; color: #ff0000; text-shadow: 2px 2px 3px rgba(255,255,255,0.9), -1px -1px 1px rgba(0,0,0,0.6); font-weight: bold; line-height: 1;">▲</div>',
+                    className: 'bearing-marker',
+                    iconSize: [32, 32],
+                    iconAnchor: [16, 16]
+                }});
+
+                if (marker) {{
+                    marker.setLatLng([lat, lon]);
+                    marker.setIcon(bearingIcon);
+                }} else {{
+                    marker = L.marker([lat, lon], {{icon: bearingIcon}}).addTo(map);
+                }}
+            }}
+
+            function updateCoordinates(lat, lon, bearing) {{
+                if (coordDiv) {{
+                    coordDiv.innerHTML = '<div>Lat: ' + lat.toFixed(6) + '<br>Lon: ' + lon.toFixed(6) + '<br>Bearing: ' + bearing.toFixed(1) + '°</div>';
+                }}
+            }}
+
+            // Make functions globally available
+            window.updateMinimapMarker = updateMarker;
+            window.updateMinimapCoordinates = updateCoordinates;
         </script>
     </body>
     </html>
@@ -1572,3 +1615,52 @@ class PhotoPreviewTab(QWidget):
 
         # Load HTML content into WebView
         self.minimap_view.setHtml(html_content)
+        self._minimap_initialized = True
+
+    def _update_minimap_position(self, lat: float, lon: float, bearing: float):
+        """Update minimap marker position without reloading the map"""
+        if hasattr(self, 'minimap_view') and self.minimap_view:
+            # Check if we have GPS data to add path overlay
+            has_gps_data = self.gps_data and hasattr(self.gps_data, 'points') and len(self.gps_data.points) > 0
+            path_overlay_js = ""
+            if has_gps_data:
+                path_overlay_js = MinimapOverlay.generate_path_overlay(self.gps_data)
+
+            # Use runJavaScript to update position without reloading
+            js_code = f"""
+            if (typeof window.updateMinimapMarker === 'function') {{
+                window.updateMinimapMarker({lat}, {lon}, {bearing});
+                // Pan to new position without changing zoom
+                if (map) {{
+                    map.panTo([{lat}, {lon}]);
+                }}
+            }}
+            if (typeof window.updateMinimapCoordinates === 'function') {{
+                window.updateMinimapCoordinates({lat}, {lon}, {bearing});
+            }}
+            // Add path overlay if GPS data is available and path not yet added
+            if (typeof window.pathAdded === 'undefined' && {1 if has_gps_data else 0}) {{
+                {path_overlay_js}
+                window.pathAdded = true;
+            }}
+            """
+            self.minimap_view.page().runJavaScript(js_code)
+
+    def _force_minimap_update(self):
+        """Force update minimap when switching FileID to ensure path overlay is refreshed"""
+        if not self.image_paths:
+            return
+
+        # Get current image metadata
+        current_image = self.image_paths[self.current_index]
+        metadata = extract_image_metadata(current_image)
+
+        # Extract GPS coordinates
+        lat = metadata.get('latitude')
+        lon = metadata.get('longitude')
+        bearing = metadata.get('bearing', 0)
+
+        if lat is not None and lon is not None:
+            # Force reinitialize minimap with new GPS data
+            self._minimap_initialized = False
+            self.update_minimap(lat, lon, bearing)
