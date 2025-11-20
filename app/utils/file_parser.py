@@ -48,6 +48,55 @@ def _validate_gps_coordinates(lat: float, lon: float) -> bool:
     return True
 
 
+def _validate_gps_data_integrity(gps_data: GPSData) -> None:
+    """Validate the integrity of loaded GPS data"""
+    if not gps_data.points:
+        return
+    
+    points = gps_data.points
+    issues = []
+    
+    # Check for monotonic chainage (should generally increase)
+    prev_chainage = None
+    decreasing_count = 0
+    for i, point in enumerate(points):
+        if prev_chainage is not None and point.chainage < prev_chainage:
+            decreasing_count += 1
+            if decreasing_count > 10:  # Allow some noise but flag if too many
+                issues.append(f"Chainage not monotonic: {decreasing_count} decreases found")
+                break
+        prev_chainage = point.chainage
+    
+    # Check for reasonable chainage range
+    chainages = [p.chainage for p in points]
+    min_chainage = min(chainages)
+    max_chainage = max(chainages)
+    if max_chainage - min_chainage > 1000000:  # More than 1000km
+        issues.append(f"Unusually large chainage range: {min_chainage:.0f}m to {max_chainage:.0f}m")
+    
+    # Check for timestamp order (should be increasing)
+    timestamps = [p.timestamp for p in points]
+    if timestamps != sorted(timestamps):
+        issues.append("GPS timestamps are not in chronological order")
+    
+    # Check for duplicate timestamps
+    unique_timestamps = set(timestamps)
+    if len(unique_timestamps) < len(timestamps):
+        issues.append(f"Found {len(timestamps) - len(unique_timestamps)} duplicate timestamps")
+    
+    # Check for reasonable time gaps
+    if len(timestamps) > 1:
+        time_diffs = [(timestamps[i+1] - timestamps[i]).total_seconds() for i in range(len(timestamps)-1)]
+        max_gap = max(time_diffs)
+        if max_gap > 3600:  # More than 1 hour gap
+            issues.append(f"Large time gap detected: {max_gap:.0f} seconds")
+    
+    if issues:
+        logging.warning(f"GPS data integrity issues found: {'; '.join(issues)}")
+    else:
+        logging.debug("GPS data integrity check passed")
+
+
 def parse_driveevt(file_path: str) -> List[Event]:
     events = []
 
@@ -217,6 +266,10 @@ def parse_driveiri(file_path: str) -> GPSData:
                     try:
                         start_chainage_km = float(row.get('StartChainage [km]', '0'))
                         start_chainage = start_chainage_km * 1000
+                        # Validate chainage is reasonable (not negative, not too large)
+                        if start_chainage < 0 or start_chainage > 10000000:  # 10,000 km max
+                            logging.warning(f"Row {row_idx}: Invalid chainage {start_chainage}, using 0.0")
+                            start_chainage = 0.0
                     except ValueError:
                         logging.debug(f"Row {row_idx}: Invalid chainage, using 0.0")
                         start_chainage = 0.0
@@ -266,6 +319,10 @@ def parse_driveiri(file_path: str) -> GPSData:
                 logging.info(f"Skipped {skipped_count} invalid rows in {file_path}")
 
             logging.info(f"Successfully parsed {valid_count} GPS points from {file_path}")
+
+            # Validate GPS data integrity
+            if gps_data.points:
+                _validate_gps_data_integrity(gps_data)
 
     except FileNotFoundError:
         logging.error(f"File not found: {file_path}")

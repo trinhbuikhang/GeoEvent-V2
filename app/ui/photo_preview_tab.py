@@ -691,24 +691,12 @@ class PhotoPreviewTab(QWidget):
                 self.slider.setMaximum(len(self.image_paths) - 1)
                 self.update_navigation_state()
 
-                # Load timeline with events first
-                self.timeline.set_events(self.events, update_view_range=False)
-
-                # Set GPS data for chainage calculation
+                # Set GPS data immediately for timeline functionality
                 if self.gps_data:
                     self.timeline.set_gps_data(self.gps_data)
 
-                # Set lane manager for lane period display
-                self.timeline.set_lane_manager(self.lane_manager)
-
-                # Set timeline view range based on image folder time range (UTC)
-                if self.fileid_metadata.get('first_image_timestamp') and self.fileid_metadata.get('last_image_timestamp'):
-                    self.timeline.set_image_time_range(
-                        self.fileid_metadata['first_image_timestamp'],
-                        self.fileid_metadata['last_image_timestamp'],
-                        self.fileid_metadata.get('first_image_coords'),
-                        self.fileid_metadata.get('last_image_coords')
-                    )
+                # Defer other timeline operations to avoid blocking GUI thread
+                QTimer.singleShot(10, self._setup_timeline_data)
 
                 # Update folder info display
                 self.update_folder_info_display()
@@ -737,6 +725,31 @@ class PhotoPreviewTab(QWidget):
         except Exception as e:
             logging.error(f"PhotoPreviewTab: Failed to load FileID {fileid_folder.fileid}: {str(e)}", exc_info=True)
             raise Exception(f"Failed to load FileID data: {str(e)}")
+
+    def _setup_timeline_data(self):
+        """Set up timeline data after initial loading (deferred to avoid blocking GUI)"""
+        try:
+            logging.info("PhotoPreviewTab: Setting up timeline data...")
+
+            # Load timeline with events first
+            self.timeline.set_events(self.events, update_view_range=False)
+
+            # Set lane manager for lane period display
+            self.timeline.set_lane_manager(self.lane_manager)
+
+            # Set timeline view range based on image folder time range (UTC)
+            if self.fileid_metadata.get('first_image_timestamp') and self.fileid_metadata.get('last_image_timestamp'):
+                self.timeline.set_image_time_range(
+                    self.fileid_metadata['first_image_timestamp'],
+                    self.fileid_metadata['last_image_timestamp'],
+                    self.fileid_metadata.get('first_image_coords'),
+                    self.fileid_metadata.get('last_image_coords')
+                )
+
+            logging.info("PhotoPreviewTab: Timeline data setup completed")
+
+        except Exception as e:
+            logging.error(f"PhotoPreviewTab: Failed to setup timeline data: {str(e)}", exc_info=True)
 
     def update_folder_info_display(self):
         """Update folder info display with current FileID metadata"""
@@ -838,22 +851,24 @@ class PhotoPreviewTab(QWidget):
 
         # Load image (with simple caching)
         if image_path not in self.image_cache:
+            logging.info(f"Loading image: {os.path.basename(image_path)}")
             pixmap = QPixmap(image_path)
             if pixmap.isNull():
                 self.image_label.setText(f"Failed to load image: {os.path.basename(image_path)}")
                 logging.error(f"Failed to load pixmap for {image_path}")
                 return
 
-            # Scale down large images for display
+            # Scale down large images for display (limit initial size to prevent UI freeze)
             if pixmap.width() > 1920:
-                pixmap = pixmap.scaledToWidth(1920, Qt.TransformationMode.SmoothTransformation)
+                logging.debug(f"Scaling large image from {pixmap.width()}x{pixmap.height()} to width 1920")
+                pixmap = pixmap.scaledToWidth(1920, Qt.TransformationMode.FastTransformation)  # Use Fast instead of Smooth for speed
 
             self.image_cache[image_path] = pixmap
 
         pixmap = self.image_cache[image_path]
         
-        # Scale image to fit available space
-        self.scale_image_to_fit()
+        # Scale image to fit available space (defer to avoid blocking UI)
+        QTimer.singleShot(10, self.scale_image_to_fit)
         
         # Schedule a rescale after widget is fully displayed
         QTimer.singleShot(100, self.rescale_current_image)
@@ -897,7 +912,7 @@ class PhotoPreviewTab(QWidget):
             scaled_pixmap = pixmap.scaled(
                 available_width, available_height,
                 Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
+                Qt.TransformationMode.FastTransformation  # Use Fast for better performance
             )
             self.image_label.setPixmap(scaled_pixmap)
 
@@ -942,8 +957,8 @@ class PhotoPreviewTab(QWidget):
         # Truck (Plate)
         truck = metadata.get('plate', '--')
 
-        # Update minimap
-        self.update_minimap(lat, lon, bearing)
+        # Update minimap (defer to avoid blocking GUI thread)
+        QTimer.singleShot(50, lambda: self.update_minimap(lat, lon, bearing))
 
     def update_navigation_state(self):
         """Update navigation buttons and labels"""

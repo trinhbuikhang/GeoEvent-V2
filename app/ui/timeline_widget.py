@@ -686,6 +686,14 @@ class TimelineWidget(QWidget):
             min_chainage = min(p.chainage for p in visible_points)
             max_chainage = max(p.chainage for p in visible_points)
         
+        # Validate chainage values
+        if (min_chainage is None or max_chainage is None or 
+            not isinstance(min_chainage, (int, float)) or not isinstance(max_chainage, (int, float)) or
+            min_chainage != min_chainage or max_chainage != max_chainage or  # Check for NaN
+            min_chainage >= max_chainage):
+            logging.warning(f"TimelineWidget: Invalid chainage range: min={min_chainage}, max={max_chainage}")
+            return
+        
         chainage_range = max_chainage - min_chainage
 
         if chainage_range <= 0:
@@ -720,34 +728,45 @@ class TimelineWidget(QWidget):
         while current_chainage <= max_chainage:
             # Find the timestamp that corresponds to this chainage
             corresponding_time = None
-            for i, point in enumerate(self.gps_data.points):
-                if point.chainage >= current_chainage:
-                    if point.chainage == current_chainage:
-                        corresponding_time = point.timestamp
-                    elif i > 0:
-                        # Interpolate between this point and the previous one
-                        prev_point = self.gps_data.points[i-1]
-                        chainage_diff = point.chainage - prev_point.chainage
-                        if chainage_diff > 0:
-                            time_diff = (point.timestamp - prev_point.timestamp).total_seconds()
-                            ratio = (current_chainage - prev_point.chainage) / chainage_diff
-                            corresponding_time = prev_point.timestamp + timedelta(seconds=time_diff * ratio)
-                    break
+            try:
+                for i, point in enumerate(self.gps_data.points):
+                    if point.chainage >= current_chainage:
+                        if point.chainage == current_chainage:
+                            corresponding_time = point.timestamp
+                        elif i > 0:
+                            # Interpolate between this point and the previous one
+                            prev_point = self.gps_data.points[i-1]
+                            chainage_diff = point.chainage - prev_point.chainage
+                            if chainage_diff > 0:
+                                time_diff = (point.timestamp - prev_point.timestamp).total_seconds()
+                                # Validate time_diff is reasonable (not too large or NaN)
+                                if abs(time_diff) > 86400:  # More than 1 day difference
+                                    logging.warning(f"TimelineWidget: Suspicious time difference at chainage {current_chainage}: {time_diff} seconds")
+                                    break
+                                ratio = (current_chainage - prev_point.chainage) / chainage_diff
+                                if 0 <= ratio <= 1:  # Valid ratio
+                                    corresponding_time = prev_point.timestamp + timedelta(seconds=time_diff * ratio)
+                        break
+            except (ValueError, OverflowError, TypeError) as e:
+                logging.error(f"TimelineWidget: Error interpolating chainage {current_chainage}: {e}")
+                corresponding_time = None
 
-            if corresponding_time:
-                x = self.time_to_pixel(corresponding_time, pixels_per_second, rect.left())
-            else:
-                continue  # Skip if no corresponding time found
+            if corresponding_time and corresponding_time == corresponding_time:  # Check for NaN
+                try:
+                    x = self.time_to_pixel(corresponding_time, pixels_per_second, rect.left())
 
-            if rect.left() <= x <= rect.right():
-                # Draw grid line
-                painter.drawLine(int(x), rect.top(), int(x), rect.bottom())
+                    if rect.left() <= x <= rect.right():
+                        # Draw grid line
+                        painter.drawLine(int(x), rect.top(), int(x), rect.bottom())
 
-                # Draw chainage label
-                chainage_str = f"{current_chainage:.0f}m"
-                painter.setPen(QColor('#BDC3C7'))
-                painter.drawText(int(x) + 2, rect.top() + 15, chainage_str)
-                painter.setPen(QColor('#7F8C8D'))
+                        # Draw chainage label
+                        chainage_str = f"{current_chainage:.0f}m"
+                        painter.setPen(QColor('#BDC3C7'))
+                        painter.drawText(int(x) + 2, rect.top() + 15, chainage_str)
+                        painter.setPen(QColor('#7F8C8D'))
+                except (ValueError, OverflowError) as e:
+                    logging.error(f"TimelineWidget: Error drawing chainage {current_chainage}: {e}")
+            # Skip to next chainage if no corresponding time found or error occurred
 
             current_chainage += interval
 
