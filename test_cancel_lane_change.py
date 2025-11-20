@@ -44,7 +44,8 @@ def test_lane_change_cancel():
 
     print("Initial lane data:")
     for fix in sorted(manager.lane_fixes, key=lambda x: x.from_time):
-        print(f"  {fix.from_time.strftime('%H:%M')} - {fix.to_time.strftime('%H:%M')}: Lane {fix.lane}")
+        color = manager.get_lane_color(fix.lane)
+        print(f"  {fix.from_time.strftime('%H:%M')} - {fix.to_time.strftime('%H:%M')}: Lane {fix.lane} (color: {color})")
 
     # Simulate enabling lane change mode (auto-apply)
     start_time = base_time.replace(hour=10, minute=30)  # 10:30
@@ -66,7 +67,8 @@ def test_lane_change_cancel():
 
     print("\nLane data after auto-apply:")
     for fix in sorted(manager.lane_fixes, key=lambda x: x.from_time):
-        print(f"  {fix.from_time.strftime('%H:%M')} - {fix.to_time.strftime('%H:%M')}: Lane {fix.lane}")
+        color = manager.get_lane_color(fix.lane)
+        print(f"  {fix.from_time.strftime('%H:%M')} - {fix.to_time.strftime('%H:%M')}: Lane {fix.lane} (color: {color})")
 
     # Now simulate cancel (revert to original lane)
     print(f"\nCancelling lane change - reverting to original lane {original_lane}")
@@ -75,18 +77,19 @@ def test_lane_change_cancel():
 
     print("\nLane data after cancel/revert:")
     for fix in sorted(manager.lane_fixes, key=lambda x: x.from_time):
-        print(f"  {fix.from_time.strftime('%H:%M')} - {fix.to_time.strftime('%H:%M')}: Lane {fix.lane}")
+        color = manager.get_lane_color(fix.lane)
+        print(f"  {fix.from_time.strftime('%H:%M')} - {fix.to_time.strftime('%H:%M')}: Lane {fix.lane} (color: {color})")
 
-    # Expected final result: back to original
+    # Expected final result: back to original, merged
     expected = [
-        ("10:00", "10:30", "1"),  # Original period unchanged
-        ("10:30", "11:00", "1"),  # Reverted back to lane 1
+        ("10:00", "11:00", "1"),  # Merged back to single period
         ("11:00", "12:00", "2")   # Original period unchanged
     ]
 
     print("\nExpected after cancel:")
     for start, end, lane in expected:
-        print(f"  {start} - {end}: Lane {lane}")
+        color = manager.get_lane_color(lane)
+        print(f"  {start} - {end}: Lane {lane} (color: {color})")
 
     # Check if result matches expected
     sorted_fixes = sorted(manager.lane_fixes, key=lambda x: x.from_time)

@@ -904,8 +904,7 @@ class PhotoPreviewTab(QWidget):
 
         if success:
             self.update_lane_display()
-            self.timeline.update()  # Force timeline repaint to show lane changes
-            # Update timeline to show lane changes
+            self.timeline.repaint()  # Force immediate timeline repaint to show lane changes
             if hasattr(self.timeline, 'timeline_area'):
                 self.timeline.timeline_area.repaint()
         else:
@@ -996,8 +995,9 @@ class PhotoPreviewTab(QWidget):
         if success:
             logging.info(f"PhotoPreviewTab: Auto-applied lane change - {new_lane_code} from {timestamp} to {self.lane_change_auto_end_timestamp}")
             self.update_lane_display()
+            self.timeline.repaint()  # Force immediate timeline repaint to show auto-applied lane changes
             if hasattr(self.timeline, 'timeline_area'):
-                self.timeline.timeline_area.repaint()  # Force immediate timeline repaint to show auto-applied lane changes
+                self.timeline.timeline_area.repaint()
         else:
             logging.error("PhotoPreviewTab: Auto lane change failed")
         
@@ -1006,6 +1006,7 @@ class PhotoPreviewTab(QWidget):
 
     def _exit_lane_change_mode(self):
         """Exit lane change mode and revert auto-applied changes"""
+        logging.info("PhotoPreviewTab: _exit_lane_change_mode called")
         # Revert the auto-applied lane change if it was applied
         if (hasattr(self, 'lane_change_start_timestamp') and self.lane_change_start_timestamp and
             hasattr(self, 'lane_change_auto_end_timestamp') and self.lane_change_auto_end_timestamp and
@@ -1024,12 +1025,16 @@ class PhotoPreviewTab(QWidget):
             if success:
                 logging.info("PhotoPreviewTab: Successfully reverted lane change")
                 self.update_lane_display()
+                self.timeline.repaint()  # Force immediate timeline repaint to show reverted lane colors
                 if hasattr(self.timeline, 'timeline_area'):
-                    self.timeline.timeline_area.repaint()  # Force immediate timeline repaint to show reverted lane colors
+                    self.timeline.timeline_area.repaint()
             else:
                 logging.error("PhotoPreviewTab: Failed to revert lane change")
+                self.timeline.repaint()  # Still update timeline in case of partial changes
                 if hasattr(self.timeline, 'timeline_area'):
-                    self.timeline.timeline_area.repaint()  # Still update timeline in case of partial changes
+                    self.timeline.timeline_area.repaint()
+        else:
+            logging.warning("PhotoPreviewTab: Missing lane change state variables for revert")
         
         # Clear lane change state
         self.lane_change_mode_active = False
@@ -1086,10 +1091,7 @@ class PhotoPreviewTab(QWidget):
         if success:
             logging.info(f"PhotoPreviewTab: Lane change applied - {self.lane_change_new_lane} from {start_time} to {end_time}")
             self.update_lane_display()
-            self.timeline.update()  # Force timeline repaint to show applied lane changes
-            # Update timeline to show lane changes
-            if hasattr(self.timeline, 'timeline_area'):
-                self.timeline.timeline_area.repaint()
+            self.timeline.repaint()  # Force immediate timeline repaint to show applied lane changes
             QMessageBox.information(self, "Success", f"Lane changed to {self.lane_change_new_lane} from {start_time.strftime('%H:%M:%S')} to {end_time.strftime('%H:%M:%S')}.")
         else:
             logging.error("PhotoPreviewTab: Lane change failed")

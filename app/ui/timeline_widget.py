@@ -857,6 +857,10 @@ class TimelineWidget(QWidget):
         if not lane_fixes:
             return
 
+        logging.info(f"TimelineWidget: Painting {len(lane_fixes)} lane periods")
+        for fix in lane_fixes:
+            logging.info(f"  Period: {fix.from_time.strftime('%H:%M:%S')} - {fix.to_time.strftime('%H:%M:%S')}: Lane {fix.lane}")
+
         # Draw lane periods as thicker horizontal bars below the marker
         lane_bar_y = rect.bottom() - 6  # Higher position above timeline
         lane_bar_height = 6  # Double thickness

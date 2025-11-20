@@ -214,6 +214,9 @@ class LaneManager:
         )
         self.lane_fixes.append(new_fix)
         
+        # Merge adjacent periods with the same lane
+        self._merge_adjacent_same_lane_periods()
+        
         # Update current_lane if this affects the current state
         if timestamp <= datetime.now(timezone.utc) <= original_end:
             self.current_lane = new_lane_code
@@ -240,6 +243,9 @@ class LaneManager:
             file_id=self.fileid_folder.name
         )
         self.lane_fixes.append(new_fix)
+        
+        # Merge adjacent periods with the same lane
+        self._merge_adjacent_same_lane_periods()
 
     def _apply_lane_change_entire(self, target_fix, new_lane_code: str):
         """Change entire period to new lane"""
@@ -332,7 +338,8 @@ class LaneManager:
 
     def get_lane_at_timestamp(self, timestamp: datetime) -> str:
         """Get the lane code active at the given timestamp"""
-        for fix in self.lane_fixes:
+        # Sort by from_time descending to check latest periods first
+        for fix in sorted(self.lane_fixes, key=lambda x: x.from_time, reverse=True):
             if fix.from_time is not None and fix.to_time is not None:
                 if fix.from_time <= timestamp <= fix.to_time:
                     return fix.lane
@@ -634,8 +641,35 @@ class LaneManager:
         # Replace overlapping fixes with new fixes
         self.lane_fixes = [fix for fix in self.lane_fixes if fix not in overlapping_fixes] + new_fixes
         
+        # Merge adjacent periods with the same lane
+        self._merge_adjacent_same_lane_periods()
+        
         self.has_changes = True
         return True
+
+    def _merge_adjacent_same_lane_periods(self):
+        """Merge adjacent periods with the same lane"""
+        if not self.lane_fixes:
+            return
+        
+        # Sort by from_time
+        self.lane_fixes.sort(key=lambda x: x.from_time)
+        
+        merged = []
+        current = self.lane_fixes[0]
+        
+        for next_fix in self.lane_fixes[1:]:
+            if (current.lane == next_fix.lane and 
+                current.to_time == next_fix.from_time and
+                current.ignore == next_fix.ignore):
+                # Merge
+                current.to_time = next_fix.to_time
+            else:
+                merged.append(current)
+                current = next_fix
+        
+        merged.append(current)
+        self.lane_fixes = merged
 
     def get_next_lane_change_time(self, timestamp: datetime) -> Optional[datetime]:
         """
