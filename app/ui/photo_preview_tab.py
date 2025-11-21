@@ -744,7 +744,8 @@ class PhotoPreviewTab(QWidget):
                 self.update_folder_info_display()
 
                 # Force update minimap with new GPS data (defer to ensure UI is ready)
-                QTimer.singleShot(100, lambda: self._force_minimap_update())
+                # Keep zoom level set by user
+                # QTimer.singleShot(100, lambda: self._force_minimap_update())
             else:
                 logging.warning("PhotoPreviewTab: No images found in FileID")
             
@@ -807,6 +808,17 @@ class PhotoPreviewTab(QWidget):
                     self.fileid_metadata.get('first_image_coords'),
                     self.fileid_metadata.get('last_image_coords')
                 )
+
+            # Update minimap with current position (keep zoom level)
+            if self.image_paths and self.current_index < len(self.image_paths):
+                current_image = self.image_paths[self.current_index]
+                from ..utils.image_utils import extract_image_metadata
+                metadata = extract_image_metadata(current_image)
+                lat = metadata.get('latitude')
+                lon = metadata.get('longitude')
+                bearing = metadata.get('bearing', 0)
+                if lat is not None and lon is not None:
+                    self.update_minimap(lat, lon, bearing)
 
             logging.info("PhotoPreviewTab: Timeline data setup completed")
 
