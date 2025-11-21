@@ -452,13 +452,12 @@ class MainWindow(QMainWindow):
         if not hasattr(self.photo_tab, 'current_fileid') or not self.photo_tab.current_fileid:
             return
 
-        # Save events if modified
-        if self.photo_tab.events_modified:
-            success = self.photo_tab.save_all_events_internal()
-            if success:
-                logging.info(f"Auto-saved {len(self.photo_tab.events)} modified events")
-            else:
-                logging.error("Failed to auto-save modified events")
+        # Always save events to ensure .driverevt files are up-to-date
+        success = self.photo_tab.save_all_events_internal()
+        if success:
+            logging.info(f"Auto-saved {len(self.photo_tab.events)} events")
+        else:
+            logging.error("Failed to auto-save events")
 
         # Save lane fixes if modified
         if hasattr(self.photo_tab, 'lane_manager') and self.photo_tab.lane_manager.has_changes:
