@@ -46,12 +46,15 @@ class MinimapOverlay:
 
         # Generate JavaScript code for dashed polyline
         overlay_js = f"""
-            // Add path overlay
+            // Update path overlay
+            if (typeof window.pathLayer !== 'undefined' && window.pathLayer) {{
+                map.removeLayer(window.pathLayer);
+            }}
             var pathCoordinates = [
                 {coords_js}
             ];
 
-            var pathPolyline = L.polyline(pathCoordinates, {{
+            window.pathLayer = L.polyline(pathCoordinates, {{
                 color: '#000080',
                 weight: 3,
                 opacity: 0.9,
@@ -61,7 +64,7 @@ class MinimapOverlay:
 
             // Optionally fit map to show entire path (commented out to keep current zoom)
             // if (pathCoordinates.length > 1) {{
-            //     map.fitBounds(pathPolyline.getBounds(), {{padding: [20, 20]}});
+            //     map.fitBounds(window.pathLayer.getBounds(), {{padding: [20, 20]}});
             // }}
         """
 

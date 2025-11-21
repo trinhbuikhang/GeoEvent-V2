@@ -667,7 +667,8 @@ class PhotoPreviewTab(QWidget):
             self.fileid_metadata = data['metadata']
             
             # Reset minimap when switching FileID to clear old path overlay
-            self._minimap_initialized = False
+            # Keep zoom level set by user
+            # self._minimap_initialized = False
             
             # Always use a fresh lane manager from data
             self.lane_manager = data['lane_manager']
@@ -1699,11 +1700,8 @@ class PhotoPreviewTab(QWidget):
             if (typeof window.updateMinimapCoordinates === 'function') {{
                 window.updateMinimapCoordinates({lat}, {lon}, {bearing});
             }}
-            // Add path overlay if GPS data is available and path not yet added
-            if (typeof window.pathAdded === 'undefined' && {1 if has_gps_data else 0}) {{
-                {path_overlay_js}
-                window.pathAdded = true;
-            }}
+            // Update path overlay
+            {path_overlay_js}
             """
             self.minimap_view.page().runJavaScript(js_code)
 
