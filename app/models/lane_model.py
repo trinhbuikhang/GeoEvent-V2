@@ -57,27 +57,46 @@ class LaneManager:
         self.plate: Optional[str] = None
         self.end_time: Optional[datetime] = None  # End time of the folder
         self.has_changes = False  # Track if there are unsaved changes
+        
+        # Metadata for validation
+        self.first_image_timestamp: Optional[datetime] = None
+        self.last_image_timestamp: Optional[datetime] = None
+        self.gps_min_timestamp: Optional[datetime] = None
+        self.gps_max_timestamp: Optional[datetime] = None
 
     def assign_lane(self, lane_code: str, timestamp: datetime) -> bool:
         """
         Assign lane at given timestamp
         All lane types create lane_fix entries for consistency
-        Returns True if successful, False if overlap detected
+        Returns True if successful, False if overlap detected or timestamp invalid
         """
         if not self.plate or not self.fileid_folder:
             logging.warning("No plate or fileid_folder set for lane assignment")
             return False
 
+        # Validate timestamp is within valid time bounds
+        if not self._is_timestamp_valid(timestamp):
+            logging.warning(f"Cannot assign lane at invalid timestamp {timestamp}")
+            return False
+
         # Check if we have existing lane data at this timestamp
         current_lane_at_time = self.get_lane_at_timestamp(timestamp)
+        logging.debug(f"Current lane at {timestamp}: {current_lane_at_time}")
         
         # If changing from one lane to another, use smart change logic
         if current_lane_at_time and current_lane_at_time != lane_code:
+            logging.debug(f"Changing lane from {current_lane_at_time} to {lane_code}")
             return self.change_lane_smart(lane_code, timestamp)
         
+        # If same lane as current at this timestamp, no need to do anything
+        if current_lane_at_time == lane_code:
+            logging.debug(f"Same lane {lane_code} already at {timestamp}")
+            return True
+        
         # Standard assignment logic for new assignments
-        # Check for overlaps (exclude ignore periods)
+        # Check for overlaps with different lanes (exclude ignore periods)
         if self.check_overlap(timestamp, exclude_ignore=True):
+            logging.warning(f"Overlap detected at {timestamp} for lane {lane_code}")
             return False
 
         # If same lane as current, extend period
@@ -112,6 +131,35 @@ class LaneManager:
         self.has_changes = True
         return True
 
+    def _is_timestamp_valid(self, timestamp: datetime) -> bool:
+        """
+        Check if timestamp is within valid time bounds for lane assignment
+        """
+        # Determine valid time range (union of image and GPS ranges)
+        valid_min_time = None
+        valid_max_time = None
+        
+        if self.first_image_timestamp and self.last_image_timestamp:
+            if valid_min_time is None or self.first_image_timestamp < valid_min_time:
+                valid_min_time = self.first_image_timestamp
+            if valid_max_time is None or self.last_image_timestamp > valid_max_time:
+                valid_max_time = self.last_image_timestamp
+        
+        if self.gps_min_timestamp and self.gps_max_timestamp:
+            if valid_min_time is None or self.gps_min_timestamp < valid_min_time:
+                valid_min_time = self.gps_min_timestamp
+            if valid_max_time is None or self.gps_max_timestamp > valid_max_time:
+                valid_max_time = self.gps_max_timestamp
+        
+        if valid_min_time is None or valid_max_time is None:
+            # No time range available, allow assignment
+            return True
+        
+        # Check bounds with tolerance
+        tolerance_seconds = 1.0
+        return (timestamp >= valid_min_time - timedelta(seconds=tolerance_seconds) and 
+                timestamp <= valid_max_time + timedelta(seconds=tolerance_seconds))
+
     def _resolve_lane_code(self, lane_code: str, reference_lane: str = None) -> str:
         """Resolve special lane codes like SK based on reference lane"""
         if lane_code == 'SK':
@@ -140,6 +188,11 @@ class LaneManager:
         """
         if not self.plate or not self.fileid_folder:
             logging.warning("No plate or fileid_folder set for smart lane change")
+            return False
+
+        # Validate timestamp is within valid time bounds
+        if not self._is_timestamp_valid(timestamp):
+            logging.warning(f"Cannot change lane at invalid timestamp {timestamp}")
             return False
 
         # Find the current lane period at this timestamp
@@ -379,6 +432,64 @@ class LaneManager:
         """Set the end time of the folder for extending lanes"""
         self.end_time = end_time
 
+    def set_metadata(self, first_image_timestamp: Optional[datetime] = None, 
+                    last_image_timestamp: Optional[datetime] = None,
+                    gps_min_timestamp: Optional[datetime] = None,
+                    gps_max_timestamp: Optional[datetime] = None):
+        """Set metadata for time bounds validation"""
+        self.first_image_timestamp = first_image_timestamp
+        self.last_image_timestamp = last_image_timestamp
+        self.gps_min_timestamp = gps_min_timestamp
+        self.gps_max_timestamp = gps_max_timestamp
+
+    def validate_lane_fixes_time_bounds(self) -> List[str]:
+        """
+        Validate that all lane fixes are within valid time bounds
+        Returns list of validation errors, empty list if all valid
+        """
+        errors = []
+        
+        if not self.lane_fixes:
+            return errors  # No fixes to validate
+        
+        # Determine valid time range (union of image and GPS ranges)
+        valid_min_time = None
+        valid_max_time = None
+        
+        if self.first_image_timestamp and self.last_image_timestamp:
+            if valid_min_time is None or self.first_image_timestamp < valid_min_time:
+                valid_min_time = self.first_image_timestamp
+            if valid_max_time is None or self.last_image_timestamp > valid_max_time:
+                valid_max_time = self.last_image_timestamp
+        
+        if self.gps_min_timestamp and self.gps_max_timestamp:
+            if valid_min_time is None or self.gps_min_timestamp < valid_min_time:
+                valid_min_time = self.gps_min_timestamp
+            if valid_max_time is None or self.gps_max_timestamp > valid_max_time:
+                valid_max_time = self.gps_max_timestamp
+        
+        if valid_min_time is None or valid_max_time is None:
+            # No time range available for validation
+            return errors
+        
+        # Validate each lane fix
+        tolerance_seconds = 1.0  # Allow 1 second tolerance for floating point precision
+        
+        for i, fix in enumerate(self.lane_fixes):
+            # Check from_time bounds
+            if fix.from_time < valid_min_time - timedelta(seconds=tolerance_seconds):
+                errors.append(f"Fix {i} ({fix.lane}): from_time {fix.from_time} < valid_min {valid_min_time}")
+            
+            # Check to_time bounds
+            if fix.to_time > valid_max_time + timedelta(seconds=tolerance_seconds):
+                errors.append(f"Fix {i} ({fix.lane}): to_time {fix.to_time} > valid_max {valid_max_time}")
+            
+            # Check from_time < to_time
+            if fix.from_time >= fix.to_time:
+                errors.append(f"Fix {i} ({fix.lane}): from_time {fix.from_time} >= to_time {fix.to_time}")
+        
+        return errors
+
     def _get_lane_fix_path(self) -> Path:
         """Get the path to the lane fix CSV file"""
         if not self.fileid_folder:
@@ -477,13 +588,34 @@ class LaneManager:
                         file_id=self.fileid_folder.name,
                         ignore=row.get('Ignore', '').strip() == '1'
                     )
-                    self.lane_fixes.append(lane_fix)
+                    
+                    # Validate the loaded lane fix before adding
+                    temp_manager = LaneManager()
+                    temp_manager.lane_fixes = [lane_fix]
+                    temp_manager.first_image_timestamp = self.first_image_timestamp
+                    temp_manager.last_image_timestamp = self.last_image_timestamp
+                    temp_manager.gps_min_timestamp = self.gps_min_timestamp
+                    temp_manager.gps_max_timestamp = self.gps_max_timestamp
+                    
+                    if not temp_manager.validate_lane_fixes_time_bounds():
+                        self.lane_fixes.append(lane_fix)
+                    else:
+                        logging.warning(f"Skipped invalid lane fix from file: {lane_fix.from_time} to {lane_fix.to_time}, lane={lane_fix.lane}")
 
             logging.info(f"Loaded {len(self.lane_fixes)} lane fixes from {lane_fix_path}")
 
         except Exception as e:
             logging.error(f"Error loading lane fixes from {lane_fix_path}: {e}")
             self.lane_fixes = []
+
+        # Validate lane fixes time bounds (should be clean now)
+        validation_errors = self.validate_lane_fixes_time_bounds()
+        if validation_errors:
+            logging.warning(f"Lane fixes validation errors after loading {self.fileid_folder.name}:")
+            for error in validation_errors:
+                logging.warning(f"  {error}")
+        else:
+            logging.info(f"Lane fixes validation passed for {self.fileid_folder.name}")
 
         self.has_changes = False  # Reset change flag after loading
 

@@ -174,7 +174,7 @@ class PhotoPreviewTab(QWidget):
         self.folder_info_label.setMinimumSize(150, 200)
         # Allow text selection and copying
         self.folder_info_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard)
-        top_row_layout.addWidget(self.folder_info_label, stretch=1)
+        top_row_layout.addWidget(self.folder_info_label, stretch=2)  # Increased stretch since minimap is commented out
         
         right_layout.addLayout(top_row_layout)
 
@@ -676,9 +676,47 @@ class PhotoPreviewTab(QWidget):
             self.lane_manager.fileid_folder = Path(fileid_folder.path)
             self.lane_manager.set_end_time(data['metadata']['last_image_timestamp'])
             
-            # Restore cached lane_fixes if available
+            # Check for lane fixes validation errors and notify user immediately
+            validation_errors = self.lane_manager.validate_lane_fixes_time_bounds()
+            if validation_errors:
+                error_msg = f"Found {len(validation_errors)} lane data validation errors for FileID {fileid_folder.fileid}:\n\n"
+                for i, error in enumerate(validation_errors[:5]):  # Show first 5 errors
+                    error_msg += f"• {error}\n"
+                if len(validation_errors) > 5:
+                    error_msg += f"... and {len(validation_errors) - 5} more errors\n\n"
+                error_msg += "These lane fixes may not display correctly on the timeline."
+                
+                QMessageBox.warning(
+                    self, 
+                    "Lane Data Warning", 
+                    error_msg
+                )
+            
+            # Restore cached lane_fixes if available, not empty, and valid for this FileID
             if fileid_folder.fileid in self.lane_fixes_per_fileid:
-                self.lane_manager.lane_fixes = self.lane_fixes_per_fileid[fileid_folder.fileid]
+                cached_lane_fixes = self.lane_fixes_per_fileid[fileid_folder.fileid]
+                if cached_lane_fixes:  # Only use cache if not empty
+                    # Validate cached lane fixes against current FileID metadata
+                    temp_lane_manager = LaneManager()
+                    temp_lane_manager.lane_fixes = cached_lane_fixes
+                    temp_lane_manager.first_image_timestamp = self.lane_manager.first_image_timestamp
+                    temp_lane_manager.last_image_timestamp = self.lane_manager.last_image_timestamp
+                    temp_lane_manager.gps_min_timestamp = self.lane_manager.gps_min_timestamp
+                    temp_lane_manager.gps_max_timestamp = self.lane_manager.gps_max_timestamp
+                    
+                    cached_validation_errors = temp_lane_manager.validate_lane_fixes_time_bounds()
+                    if not cached_validation_errors:
+                        # Cached lane fixes are valid for this FileID, restore them
+                        self.lane_manager.lane_fixes = cached_lane_fixes
+                        logging.info(f"PhotoPreviewTab: Restored {len(cached_lane_fixes)} cached lane fixes for {fileid_folder.fileid}")
+                    else:
+                        # Cached lane fixes are invalid for this FileID, discard them
+                        logging.warning(f"PhotoPreviewTab: Discarded {len(cached_lane_fixes)} invalid cached lane fixes for {fileid_folder.fileid}")
+                        # Remove invalid cache entry
+                        del self.lane_fixes_per_fileid[fileid_folder.fileid]
+                else:
+                    # Cached lane fixes are empty, use loaded data from file
+                    logging.info(f"PhotoPreviewTab: Cached lane fixes empty, using loaded data from file for {fileid_folder.fileid}")
             
             # Cache the current lane_fixes for this FileID
             self.lane_fixes_per_fileid[fileid_folder.fileid] = self.lane_manager.lane_fixes
@@ -742,6 +780,23 @@ class PhotoPreviewTab(QWidget):
 
             # Set lane manager for lane period display
             self.timeline.set_lane_manager(self.lane_manager)
+            
+            # Check for lane fixes validation errors and notify user
+            if self.lane_manager:
+                validation_errors = self.lane_manager.validate_lane_fixes_time_bounds()
+                if validation_errors:
+                    error_msg = f"Found {len(validation_errors)} lane data validation errors:\n\n"
+                    for i, error in enumerate(validation_errors[:5]):  # Show first 5 errors
+                        error_msg += f"• {error}\n"
+                    if len(validation_errors) > 5:
+                        error_msg += f"... and {len(validation_errors) - 5} more errors\n\n"
+                    error_msg += "These lane fixes may not display correctly on the timeline."
+                    
+                    QMessageBox.warning(
+                        self, 
+                        "Lane Data Warning", 
+                        error_msg
+                    )
 
             # Set timeline view range based on image folder time range (UTC)
             if self.fileid_metadata.get('first_image_timestamp') and self.fileid_metadata.get('last_image_timestamp'):
@@ -1016,16 +1071,16 @@ class PhotoPreviewTab(QWidget):
             self.play_btn.setText("⏸ Pause")
             self.is_playing = True
 
-    def assign_lane(self, lane_code: str):
+    def assign_lane(self, lane_code: str) -> bool:
         """Assign lane at current position with smart change logic"""
         logging.info(f"PhotoPreviewTab: assign_lane called with lane_code='{lane_code}'")
         if not self.current_metadata or 'timestamp' not in self.current_metadata:
             logging.warning("PhotoPreviewTab: assign_lane failed - no current metadata")
-            return
+            return False
 
         if not self.lane_manager:
             logging.warning("PhotoPreviewTab: assign_lane failed - no lane_manager")
-            return
+            return False
 
         timestamp = self.current_metadata['timestamp']
 
@@ -1059,6 +1114,8 @@ class PhotoPreviewTab(QWidget):
                 f"Time: {timestamp.strftime('%H:%M:%S')}\n"
                 f"Plate: {self.current_metadata.get('plate', 'Unknown')}"
             )
+
+        return success
 
     def _perform_smart_lane_change(self, new_lane_code: str, timestamp: datetime) -> bool:
         """Perform smart lane change with user choice dialog"""

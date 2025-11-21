@@ -289,6 +289,16 @@ class MainWindow(QMainWindow):
             # Save lane fixes if modified
             if hasattr(self.photo_tab, 'lane_manager') and self.photo_tab.lane_manager.has_changes:
                 output_path = os.path.join(self.photo_tab.current_fileid.path, f"{self.photo_tab.current_fileid.fileid}_lane_fixes.csv")
+                # Backup existing file before overwriting
+                if os.path.exists(output_path):
+                    import datetime
+                    backup_path = os.path.join(self.photo_tab.current_fileid.path, f"{self.photo_tab.current_fileid.fileid}_lane_fixes_backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+                    try:
+                        import shutil
+                        shutil.copy2(output_path, backup_path)
+                        logging.info(f"Backed up existing lane fixes file to {backup_path}")
+                    except Exception as e:
+                        logging.error(f"Failed to backup lane fixes file: {str(e)}")
                 success = self.photo_tab.export_manager.export_lane_fixes(self.photo_tab.lane_manager.lane_fixes, output_path, include_file_id=False)
                 if success:
                     logging.info(f"Auto-saved {len(self.photo_tab.lane_manager.lane_fixes)} modified lane fixes to {output_path}")
@@ -321,7 +331,7 @@ class MainWindow(QMainWindow):
                 logging.warning("Background save completed with errors")
 
         # Clean up worker
-        if hasattr(self, 'save_worker'):
+        if hasattr(self, 'save_worker') and self.save_worker is not None:
             self.save_worker.quit()
             self.save_worker.wait()
             self.save_worker = None
@@ -372,6 +382,16 @@ class MainWindow(QMainWindow):
                         original_fixes = temp_manager.get_lane_fixes()
                         if len(lane_fixes) != len(original_fixes) or any(f1 != f2 for f1, f2 in zip(lane_fixes, original_fixes)):
                             output_path = os.path.join(fileid_folder.path, f"{fileid_folder.fileid}_lane_fixes.csv")
+                            # Backup existing file before overwriting
+                            if os.path.exists(output_path):
+                                import datetime
+                                backup_path = os.path.join(fileid_folder.path, f"{fileid_folder.fileid}_lane_fixes_backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+                                try:
+                                    import shutil
+                                    shutil.copy2(output_path, backup_path)
+                                    logging.info(f"Backed up existing lane fixes file to {backup_path}")
+                                except Exception as e:
+                                    logging.error(f"Failed to backup lane fixes file: {str(e)}")
                             success = self.photo_tab.export_manager.export_lane_fixes(lane_fixes, output_path, include_file_id=False)
                             if success:
                                 logging.info(f"Auto-saved {len(lane_fixes)} modified lane fixes for FileID {fileid_folder.fileid}")

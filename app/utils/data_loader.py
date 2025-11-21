@@ -70,6 +70,20 @@ class DataLoader:
             result['metadata'] = self._extract_fileid_metadata(fileid_folder, result['image_paths'])
             logging.info("FileID metadata extracted")
             
+            # Set metadata for validation
+            gps_min_time, gps_max_time = None, None
+            if result['gps_data'] and result['gps_data'].points:
+                result['gps_data'].sort_by_time()
+                gps_min_time = result['gps_data'].points[0].timestamp
+                gps_max_time = result['gps_data'].points[-1].timestamp
+            
+            self.lane_manager.set_metadata(
+                first_image_timestamp=result['metadata'].get('first_image_timestamp'),
+                last_image_timestamp=result['metadata'].get('last_image_timestamp'),
+                gps_min_timestamp=gps_min_time,
+                gps_max_timestamp=gps_max_time
+            )
+            
             # Setup lane manager
             logging.debug("Setting up lane manager...")
             plate = None
