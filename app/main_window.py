@@ -134,6 +134,14 @@ class MainWindow(QMainWindow):
         file_menu.addAction(open_action)
 
         file_menu.addSeparator()
+        
+        # Merge data action
+        merge_action = QAction("Merge All Data", self)
+        merge_action.triggered.connect(self._handle_manual_merge)
+        merge_action.setStatusTip("Merge data from all FileID folders into root folder files (auto-saves current data first)")
+        file_menu.addAction(merge_action)
+        
+        file_menu.addSeparator()
         exit_action = QAction("Exit", self)
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
@@ -209,6 +217,9 @@ class MainWindow(QMainWindow):
 
         if folder_path:
             try:
+                # Auto-save current data before switching folders (silent save)
+                self.auto_save_current_data_silent()
+
                 # Scan for FileIDs
                 fileid_folders = self.fileid_manager.scan_parent_folder(folder_path)
 
@@ -281,7 +292,8 @@ class MainWindow(QMainWindow):
             if self.photo_tab.events_modified:
                 success = self.photo_tab.save_all_events_internal()
                 if success:
-                    logging.info(f"Auto-saved {len(self.photo_tab.events)} modified events for {self.photo_tab.current_fileid.fileid}")
+                    # logging.info(f"Auto-saved {len(self.photo_tab.events)} modified events for {self.photo_tab.current_fileid.fileid}")
+                    pass
                 else:
                     logging.error("Failed to auto-save modified events")
                     overall_success = False
@@ -296,24 +308,25 @@ class MainWindow(QMainWindow):
                     try:
                         import shutil
                         shutil.copy2(output_path, backup_path)
-                        logging.info(f"Backed up existing lane fixes file to {backup_path}")
+                        # logging.info(f"Backed up existing lane fixes file to {backup_path}")
                     except Exception as e:
                         logging.error(f"Failed to backup lane fixes file: {str(e)}")
                 success = self.photo_tab.export_manager.export_lane_fixes(self.photo_tab.lane_manager.lane_fixes, output_path, include_file_id=False)
                 if success:
-                    logging.info(f"Auto-saved {len(self.photo_tab.lane_manager.lane_fixes)} modified lane fixes to {output_path}")
+                    # logging.info(f"Auto-saved {len(self.photo_tab.lane_manager.lane_fixes)} modified lane fixes to {output_path}")
                     self.photo_tab.lane_manager.has_changes = False  # Reset after successful save
                 else:
                     logging.error("Failed to auto-save modified lane fixes")
                     overall_success = False
 
             # Update merged files after saving current FileID data
-            try:
-                self._merge_and_save_multi_fileid_data()
-                logging.info("Updated merged files after auto-save")
-            except Exception as e:
-                logging.error(f"Failed to update merged files: {e}")
-                overall_success = False
+            # Only merge if this is a significant operation (not during navigation)
+            # try:
+            #     self._merge_and_save_multi_fileid_data()
+            #     # logging.info("Updated merged files after auto-save")
+            # except Exception as e:
+            #     logging.error(f"Failed to update merged files: {e}")
+            #     overall_success = False
 
             return overall_success
 
@@ -456,6 +469,30 @@ class MainWindow(QMainWindow):
                 self.photo_tab.lane_manager.has_changes = False  # Reset after successful save
             else:
                 logging.error("Failed to auto-save modified lane fixes")
+
+    def _handle_manual_merge(self):
+        """Handle manual merge request - auto-save current data first, then merge"""
+        try:
+            # First auto-save current data
+            if hasattr(self.photo_tab, 'current_fileid') and self.photo_tab.current_fileid:
+                self._start_background_save()
+                # Wait a bit for save to complete
+                import time
+                time.sleep(0.5)
+            
+            # Then merge all data
+            self._merge_and_save_multi_fileid_data()
+            
+            QMessageBox.information(
+                self, "Merge Complete",
+                "All FileID data has been merged into root folder files."
+            )
+            
+        except Exception as e:
+            QMessageBox.warning(
+                self, "Merge Error", 
+                f"Failed to merge data: {str(e)}"
+            )
 
     def _merge_and_save_multi_fileid_data(self):
         """Merge data from all FileID folders and save to root folder"""

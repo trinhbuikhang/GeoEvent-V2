@@ -201,7 +201,7 @@ def parse_driveevt(file_path: str) -> List[Event]:
                 else:
                     logging.warning(f"No matching end event found for '{start['name']}' at {start['time']}")
 
-            logging.info(f"Successfully parsed {len(events)} events from {file_path}")
+            # logging.info(f"Successfully parsed {len(events)} events from {file_path}")
 
     except FileNotFoundError:
         logging.error(f"File not found: {file_path}")
@@ -316,9 +316,10 @@ def parse_driveiri(file_path: str) -> GPSData:
                     continue
 
             if skipped_count > 0:
-                logging.info(f"Skipped {skipped_count} invalid rows in {file_path}")
+                # logging.info(f"Skipped {skipped_count} invalid rows in {file_path}")
+                pass
 
-            logging.info(f"Successfully parsed {valid_count} GPS points from {file_path}")
+            # logging.info(f"Successfully parsed {valid_count} GPS points from {file_path}")
 
             # Validate GPS data integrity
             if gps_data.points:
@@ -376,7 +377,7 @@ def enrich_events_with_gps(events: List[Event], gps_data: GPSData) -> None:
         if enriched:
             enriched_count += 1
 
-    logging.info(f"Enriched {enriched_count}/{len(events)} events with GPS data")
+    # logging.info(f"Enriched {enriched_count}/{len(events)} events with GPS data")
 
 
 def save_driveevt(events: List[Event], file_path: str, fileid: str = "") -> bool:
@@ -466,7 +467,7 @@ def save_driveevt(events: List[Event], file_path: str, fileid: str = "") -> bool
             os.remove(backup_path)
             logging.debug(f"Deleted backup: {backup_path}")
 
-        logging.info(f"Successfully saved {len(events)} events to {file_path}")
+        # logging.info(f"Successfully saved {len(events)} events to {file_path}")
         return True
 
     except PermissionError as e:

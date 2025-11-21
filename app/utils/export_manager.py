@@ -78,7 +78,7 @@ class ExportManager:
         
         try:
             # Log what we're exporting
-            logging.info(f"ExportManager: Exporting {len(lane_fixes)} lane fixes to {output_path} (include_file_id={include_file_id})")
+            # logging.info(f"ExportManager: Exporting {len(lane_fixes)} lane fixes to {output_path} (include_file_id={include_file_id})")
             
             # Create backup if file exists
             if os.path.exists(output_path):
@@ -155,7 +155,7 @@ class ExportManager:
                 os.remove(backup_path)
                 logging.debug(f"Deleted backup: {backup_path}")
             
-            logging.info(f"Successfully exported {len(lane_fixes) - skipped} lane fixes")
+            # logging.info(f"Successfully exported {len(lane_fixes) - skipped} lane fixes")
             return True
 
         except PermissionError as e:

@@ -166,6 +166,19 @@ class TimelineWidget(QWidget):
     def set_lane_manager(self, lane_manager):
         """Set lane manager for displaying lane periods."""
         self.lane_manager = lane_manager
+        
+        # Validate lane fixes time bounds
+        if lane_manager:
+            validation_errors = lane_manager.validate_lane_fixes_time_bounds()
+            if validation_errors:
+                logging.warning("Timeline lane fixes validation errors:")
+                for error in validation_errors[:5]:  # Log first 5 errors to avoid spam
+                    logging.warning(f"  {error}")
+                if len(validation_errors) > 5:
+                    logging.warning(f"  ... and {len(validation_errors) - 5} more errors")
+            else:
+                logging.debug("Timeline lane fixes validation passed")
+        
         self.timeline_area.update()
 
     def get_chainage_at_time(self, timestamp: datetime) -> Optional[float]:
@@ -881,7 +894,7 @@ class TimelineWidget(QWidget):
             logging.info(f"  Period: {fix.from_time.strftime('%H:%M:%S')} - {fix.to_time.strftime('%H:%M:%S')}: Lane {fix.lane}")
 
         # Draw lane periods as thicker horizontal bars below the marker
-        lane_bar_y = rect.bottom() - 6  # Higher position above timeline
+        lane_bar_y = rect.bottom() + 2  # Position below timeline
         lane_bar_height = 6  # Double thickness
 
         for i, fix in enumerate(lane_fixes):

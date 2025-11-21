@@ -39,7 +39,7 @@ class DataLoader:
             'events': [],
             'gps_data': None,
             'image_paths': [],
-            'lane_manager': self.lane_manager,
+            'lane_manager': LaneManager(),  # Create new instance for each FileID
             'metadata': {}
         }
         
@@ -86,6 +86,11 @@ class DataLoader:
             
             # Setup lane manager
             logging.debug("Setting up lane manager...")
+            
+            # Reset lane fixes for new FileID (prevent contamination from previous FileID)
+            result['lane_manager'].lane_fixes = []
+            result['lane_manager'].has_changes = False
+            
             plate = None
             if result['image_paths']:
                 try:
@@ -94,11 +99,11 @@ class DataLoader:
                 except Exception as e:
                     logging.warning(f"Could not extract plate from first image: {e}")
             
-            self.lane_manager.set_fileid_folder(fileid_folder.path, plate)
+            result['lane_manager'].set_fileid_folder(fileid_folder.path, plate)
             
             # Set end time for lane extension
             if result['metadata'].get('last_image_timestamp'):
-                self.lane_manager.set_end_time(result['metadata']['last_image_timestamp'])
+                result['lane_manager'].set_end_time(result['metadata']['last_image_timestamp'])
             
             logging.info("Lane manager setup complete")
             

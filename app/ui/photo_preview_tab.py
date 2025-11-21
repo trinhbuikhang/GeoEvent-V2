@@ -25,60 +25,6 @@ from ..utils.export_manager import ExportManager
 from ..utils.minimap_overlay import MinimapOverlay
 from .timeline_widget import TimelineWidget
 
-class LaneChangeDialog(QDialog):
-    """Dialog for choosing lane change scope"""
-    
-    def __init__(self, current_lane, new_lane, timestamp, period_start, period_end, parent=None):
-        super().__init__(parent)
-        self.current_lane = current_lane
-        self.new_lane = new_lane
-        self.timestamp = timestamp
-        self.period_start = period_start
-        self.period_end = period_end
-        self.selected_scope = None
-        
-        self.setup_ui()
-    
-    def get_lane_display_name(self, lane_code):
-        """Get display name for lane code"""
-        if lane_code == '':
-            return 'Ignore'
-        elif lane_code.startswith('T'):
-            return lane_code  # TK1, TM2, etc.
-        else:
-            return f'Lane {lane_code}'
-    
-    def setup_ui(self):
-        self.setWindowTitle("Lane Change Mode")
-        self.setModal(True)
-        self.resize(500, 200)
-        
-        layout = QVBoxLayout(self)
-        
-        # Description
-        current_display = self.get_lane_display_name(self.current_lane)
-        new_display = self.get_lane_display_name(self.new_lane)
-        desc_label = QLabel(
-            f"Change from {current_display} to {new_display} at {self.timestamp.strftime('%H:%M:%S')}\n\n"
-            f"• Drag the yellow marker on the timeline to select the end time\n"
-            f"• The change will apply from {self.timestamp.strftime('%H:%M:%S')} to the marker position\n"
-            f"• Release the marker to confirm the change\n"
-            f"• Click 'Cancel' to exit lane change mode"
-        )
-        desc_label.setWordWrap(True)
-        desc_label.setStyleSheet("font-size: 11px; line-height: 1.4;")
-        layout.addWidget(desc_label)
-        
-        # Buttons
-        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
-    
-    def get_selected_scope(self):
-        """Return the selected scope: always 'marker'"""
-        return 'marker'
-
 class PhotoPreviewTab(QWidget):
     """
     Main tab widget for photo preview and navigation
@@ -580,7 +526,7 @@ class PhotoPreviewTab(QWidget):
 
     def on_event_modified(self, event_id: str, changes: dict):
         """Handle event modification"""
-        logging.info(f"PhotoPreviewTab: Applying changes to event {event_id}: {changes}")
+        # logging.info(f"PhotoPreviewTab: Applying changes to event {event_id}: {changes}")
         for event in self.events:
             if event.event_id == event_id:
                 for key, value in changes.items():
@@ -600,13 +546,13 @@ class PhotoPreviewTab(QWidget):
 
     def on_event_deleted(self, event_id: str):
         """Handle event deletion"""
-        logging.info(f"PhotoPreviewTab: Deleting event {event_id}")
+        # logging.info(f"PhotoPreviewTab: Deleting event {event_id}")
         self.events = [event for event in self.events if event.event_id != event_id]
         self.events_modified = True
         # Cache modified events for this FileID
         if self.current_fileid:
             self.events_per_fileid[self.current_fileid.fileid] = self.events
-        logging.info(f"PhotoPreviewTab: {len(self.events)} events remaining after deletion")
+        # logging.info(f"PhotoPreviewTab: {len(self.events)} events remaining after deletion")
         # Update timeline display without changing view range
         self.timeline.set_events(self.events, update_view_range=False)
         # Force update timeline area
@@ -615,7 +561,7 @@ class PhotoPreviewTab(QWidget):
 
     def on_event_created(self, event):
         """Handle event creation"""
-        logging.info(f"PhotoPreviewTab: Adding new event {event.event_id}")
+        # logging.info(f"PhotoPreviewTab: Adding new event {event.event_id}")
         self.events.append(event)
         self.events_modified = True
         # Cache modified events for this FileID
@@ -645,16 +591,13 @@ class PhotoPreviewTab(QWidget):
 
     def load_fileid(self, fileid_folder):
         """Load data for a specific FileID"""
-        logging.info(f"PhotoPreviewTab: Loading FileID {fileid_folder.fileid} from {fileid_folder.path}")
+        # logging.info(f"PhotoPreviewTab: Loading FileID {fileid_folder.fileid} from {fileid_folder.path}")
         
         try:
             # Save current events and lane_fixes to cache before switching FileID
             if self.current_fileid:
                 self.events_per_fileid[self.current_fileid.fileid] = self.events
                 self.lane_fixes_per_fileid[self.current_fileid.fileid] = self.lane_manager.lane_fixes if self.lane_manager else []
-            
-            # Store current FileID for saving
-            self.current_fileid = fileid_folder
             
             # Use DataLoader to load all data
             data = self.data_loader.load_fileid_data(fileid_folder)
@@ -676,6 +619,9 @@ class PhotoPreviewTab(QWidget):
             self.lane_manager.plate = plate
             self.lane_manager.fileid_folder = Path(fileid_folder.path)
             self.lane_manager.set_end_time(data['metadata']['last_image_timestamp'])
+            
+            # Store current FileID for saving (set after lane_manager is ready)
+            self.current_fileid = fileid_folder
             
             # Check for lane fixes validation errors and notify user immediately
             validation_errors = self.lane_manager.validate_lane_fixes_time_bounds()
@@ -709,7 +655,7 @@ class PhotoPreviewTab(QWidget):
                     if not cached_validation_errors:
                         # Cached lane fixes are valid for this FileID, restore them
                         self.lane_manager.lane_fixes = cached_lane_fixes
-                        logging.info(f"PhotoPreviewTab: Restored {len(cached_lane_fixes)} cached lane fixes for {fileid_folder.fileid}")
+                        # logging.info(f"PhotoPreviewTab: Restored {len(cached_lane_fixes)} cached lane fixes for {fileid_folder.fileid}")
                     else:
                         # Cached lane fixes are invalid for this FileID, discard them
                         logging.warning(f"PhotoPreviewTab: Discarded {len(cached_lane_fixes)} invalid cached lane fixes for {fileid_folder.fileid}")
@@ -717,16 +663,17 @@ class PhotoPreviewTab(QWidget):
                         del self.lane_fixes_per_fileid[fileid_folder.fileid]
                 else:
                     # Cached lane fixes are empty, use loaded data from file
-                    logging.info(f"PhotoPreviewTab: Cached lane fixes empty, using loaded data from file for {fileid_folder.fileid}")
+                    # logging.info(f"PhotoPreviewTab: Cached lane fixes empty, using loaded data from file for {fileid_folder.fileid}")
+                    pass
             
             # Cache the current lane_fixes for this FileID
             self.lane_fixes_per_fileid[fileid_folder.fileid] = self.lane_manager.lane_fixes
             
-            logging.info(f"PhotoPreviewTab: Stored {len(self.events)} events, {len(self.image_paths)} images")
+            # logging.info(f"PhotoPreviewTab: Stored {len(self.events)} events, {len(self.image_paths)} images")
 
             # Load first image if available BEFORE setting timeline events
             if self.image_paths:
-                logging.info(f"Loading first image: {os.path.basename(self.image_paths[0])}")
+                # logging.info(f"Loading first image: {os.path.basename(self.image_paths[0])}")
                 self.navigate_to_image(0)
 
                 # Update UI components
@@ -749,7 +696,7 @@ class PhotoPreviewTab(QWidget):
             else:
                 logging.warning("PhotoPreviewTab: No images found in FileID")
             
-            logging.info(f"PhotoPreviewTab: Successfully loaded FileID {fileid_folder.fileid}")
+            # logging.info(f"PhotoPreviewTab: Successfully loaded FileID {fileid_folder.fileid}")
             if hasattr(self.main_window, 'update_fileid_navigation'):
                 self.main_window.update_fileid_navigation()
 
@@ -775,7 +722,7 @@ class PhotoPreviewTab(QWidget):
     def _setup_timeline_data(self):
         """Set up timeline data after initial loading (deferred to avoid blocking GUI)"""
         try:
-            logging.info("PhotoPreviewTab: Setting up timeline data...")
+            # logging.info("PhotoPreviewTab: Setting up timeline data...")
 
             # Load timeline with events first
             self.timeline.set_events(self.events, update_view_range=False)
@@ -820,7 +767,7 @@ class PhotoPreviewTab(QWidget):
                 if lat is not None and lon is not None:
                     self.update_minimap(lat, lon, bearing)
 
-            logging.info("PhotoPreviewTab: Timeline data setup completed")
+            # logging.info("PhotoPreviewTab: Timeline data setup completed")
 
         except Exception as e:
             logging.error(f"PhotoPreviewTab: Failed to setup timeline data: {str(e)}", exc_info=True)
@@ -898,7 +845,7 @@ class PhotoPreviewTab(QWidget):
             timestamp = self.current_metadata.get('timestamp')
             if timestamp is not None:
                 gps_coords = self.current_metadata.get('gps_coords', (None, None))
-                logging.info(f"PhotoPreviewTab: Navigating to image {index}, timestamp={timestamp}, lane_change_mode_active={self.lane_change_mode_active}")
+                # logging.info(f"PhotoPreviewTab: Navigating to image {index}, timestamp={timestamp}, lane_change_mode_active={self.lane_change_mode_active}")
                 self.timeline.set_current_position(timestamp)
                 self.position_changed.emit(timestamp, gps_coords)
 
@@ -1146,29 +1093,10 @@ class PhotoPreviewTab(QWidget):
             logging.error("Could not find target lane fix for smart change")
             return False
         
-        # Show choice dialog
-        logging.info(f"PhotoPreviewTab: Creating LaneChangeDialog for {current_lane} -> {new_lane_code}")
-        dialog = LaneChangeDialog(
-            current_lane=current_lane,
-            new_lane=new_lane_code,
-            timestamp=timestamp,
-            period_start=target_fix.from_time,
-            period_end=target_fix.to_time,
-            parent=self
-        )
-        logging.info("PhotoPreviewTab: LaneChangeDialog created")
-        
-        logging.info(f"PhotoPreviewTab: Showing lane change dialog for {current_lane} -> {new_lane_code}")
-        result = dialog.exec()
-        logging.info(f"PhotoPreviewTab: Dialog result: {result}")
-        
-        if result == QDialog.DialogCode.Accepted:
-            # Always enable lane change mode using current position marker for all lane types
-            self._enable_lane_change_mode(new_lane_code, timestamp)
-            return True  # Don't apply change yet, wait for marker confirmation
-        else:
-            logging.info("PhotoPreviewTab: Smart lane change cancelled by user")
-            return False
+        # Skip confirmation dialog and directly enable lane change mode
+        # Always enable lane change mode using current position marker for all lane types
+        self._enable_lane_change_mode(new_lane_code, timestamp)
+        return True  # Don't apply change yet, wait for marker confirmation
 
     def _enable_lane_change_mode(self, new_lane_code: str, timestamp: datetime):
         """Enable lane change mode using current position marker"""
