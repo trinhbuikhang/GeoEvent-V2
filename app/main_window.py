@@ -567,8 +567,13 @@ class MainWindow(QMainWindow):
             self.photo_tab.fileid_combo.blockSignals(True)
             self.photo_tab.fileid_combo.clear()
             for fileid_folder in self.fileid_manager.fileid_list:
-                self.photo_tab.fileid_combo.addItem(fileid_folder.fileid)
-            self.photo_tab.fileid_combo.setCurrentText(current.fileid)
+                display_text = f"▶ {fileid_folder.fileid}" if fileid_folder.fileid == current.fileid else fileid_folder.fileid
+                self.photo_tab.fileid_combo.addItem(display_text, fileid_folder.fileid)
+            # Set current item by data, not display text
+            for i in range(self.photo_tab.fileid_combo.count()):
+                if self.photo_tab.fileid_combo.itemData(i) == current.fileid:
+                    self.photo_tab.fileid_combo.setCurrentIndex(i)
+                    break
             self.photo_tab.fileid_combo.blockSignals(False)
 
             logging.info(f"Navigation updated: index={index}, total={total}, prev_enabled={prev_enabled}, next_enabled={next_enabled}")

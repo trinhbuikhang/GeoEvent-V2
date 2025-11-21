@@ -1456,12 +1456,15 @@ class PhotoPreviewTab(QWidget):
             logging.warning("PhotoPreviewTab: No current FileID or lane_manager to save lane fixes")
             QMessageBox.warning(self, "Warning", "No current FileID to save lane fixes to")
 
-    def on_fileid_selected(self, fileid: str):
+    def on_fileid_selected(self, display_text: str):
         """Handle FileID selection from dropdown"""
-        logging.info(f"PhotoPreviewTab: on_fileid_selected called with fileid='{fileid}'")
-        if not fileid or not hasattr(self.main_window, 'fileid_manager'):
-            logging.warning("PhotoPreviewTab: on_fileid_selected - no fileid or fileid_manager")
+        logging.info(f"PhotoPreviewTab: on_fileid_selected called with display_text='{display_text}'")
+        if not display_text or not hasattr(self.main_window, 'fileid_manager'):
+            logging.warning("PhotoPreviewTab: on_fileid_selected - no display_text or fileid_manager")
             return
+        
+        # Extract actual fileid from display text (remove ▶ prefix if present)
+        fileid = display_text.lstrip("▶ ").strip()
         
         # Check if this is already the current FileID
         current = self.main_window.fileid_manager.get_current_fileid()
