@@ -492,6 +492,14 @@ class PhotoPreviewTab(QWidget):
         self.fileid_combo.currentTextChanged.connect(self.on_fileid_selected)
         parent_layout.addWidget(self.fileid_combo)
 
+        # Open current FileID folder button
+        self.open_fileid_folder_btn = QPushButton("📁")
+        self.open_fileid_folder_btn.setMinimumHeight(40)
+        self.open_fileid_folder_btn.setMaximumWidth(50)
+        self.open_fileid_folder_btn.setToolTip("Open current FileID folder in Explorer")
+        self.open_fileid_folder_btn.clicked.connect(self.open_current_fileid_folder)
+        parent_layout.addWidget(self.open_fileid_folder_btn)
+
         parent_layout.addStretch()
 
         self.next_fileid_btn = QPushButton("Next FileID ▶")
@@ -1482,6 +1490,37 @@ class PhotoPreviewTab(QWidget):
                 # Load the selected FileID
                 self.main_window.load_fileid(fileid_folder)
                 break
+
+    def open_current_fileid_folder(self):
+        """Open the current FileID folder in Windows Explorer"""
+        if hasattr(self, 'current_fileid') and self.current_fileid:
+            try:
+                import subprocess
+                import os
+                folder_path = self.current_fileid.path
+                
+                # Normalize path to use Windows backslashes
+                folder_path = os.path.normpath(folder_path)
+                
+                # Use explorer.exe to open the folder
+                # Note: explorer.exe may return non-zero exit codes even on success
+                result = subprocess.run(['explorer.exe', folder_path])
+                
+                # Check if the process started successfully (not the exit code)
+                if result.returncode == 0 or result.returncode == 1:  # explorer.exe often returns 1 even on success
+                    logging.info(f"Opened FileID folder in Explorer: {folder_path}")
+                else:
+                    logging.warning(f"Explorer returned unexpected exit code: {result.returncode}")
+                    QMessageBox.warning(self, "Warning", f"Explorer may not have opened the folder correctly.\nExit code: {result.returncode}")
+                    
+            except FileNotFoundError:
+                logging.error("explorer.exe not found")
+                QMessageBox.critical(self, "Error", "Windows Explorer (explorer.exe) not found on this system.")
+            except Exception as e:
+                logging.error(f"Unexpected error opening FileID folder: {e}")
+                QMessageBox.warning(self, "Error", f"Unexpected error:\n{str(e)}")
+        else:
+            QMessageBox.information(self, "No FileID", "No FileID is currently loaded.")
 
     def update_minimap(self, lat: float, lon: float, bearing: float = 0):
         """Update minimap with GPS position and bearing using Leaflet"""
