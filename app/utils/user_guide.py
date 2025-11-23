@@ -32,170 +32,178 @@ class UserGuideDialog(QDialog):
         return """
         <h1>GeoEvent User Guide</h1>
 
-        <h2>Introduction</h2>
-        <p>GeoEvent is a road survey event coding application that helps users analyze and code data from cameras and GPS in traffic survey projects. The application supports lane assignment, event coding, and data export for traffic analysis.</p>
+        <h2>Quick Start Workflow</h2>
+        <p>GeoEvent is designed for efficient road survey data coding. Follow this workflow for best results:</p>
 
-        <h2>Installation and Startup</h2>
+        <h3>1. Open Survey Data Folder</h3>
         <ol>
-            <li>Ensure you have Python 3.8+ and required libraries installed (PyQt6, pandas, etc.)</li>
-            <li>Run command: <code>python main.py</code></li>
-            <li>The application will open with the main interface</li>
+            <li>Select <b>File > Open Folder...</b> from the menu</li>
+            <li>Choose a folder containing survey data (network paths supported)</li>
+            <li>The application automatically scans for FileID folders</li>
+            <li>First FileID loads automatically with images, GPS, and existing lane data</li>
         </ol>
 
-        <h2>Main Interface</h2>
-        <h3>Menu Bar</h3>
+        <h3>2. Navigate Between FileIDs</h3>
         <ul>
-            <li><b>File:</b> Open survey data folder, auto-save settings</li>
-            <li><b>View:</b> Change theme (Light/Dark), force Fusion style for consistency</li>
-            <li><b>Help:</b> User guide and application information</li>
+            <li>Use <b>Previous/Next FileID</b> buttons in toolbar</li>
+            <li>Status bar shows current FileID and total count</li>
+            <li><b>Auto-save:</b> Data automatically saves when switching FileIDs</li>
+            <li><b>Performance:</b> Only current FileID data loads (fast switching)</li>
         </ul>
 
-        <h3>Toolbar</h3>
-        <p>Contains main navigation and control tools</p>
+        <h3>3. Code Lane Assignments</h3>
+        <p>Assign lanes using the lane buttons. Each FileID maintains separate lane data:</p>
 
-        <h3>Status Bar</h3>
-        <p>Displays status information, current FileID, memory usage, and autosave status</p>
-
-        <h2>Workflow</h2>
-        <h3>1. Open Data Folder</h3>
+        <h4>Basic Lane Assignment:</h4>
         <ol>
-            <li>Select <b>File > Open Folder...</b></li>
-            <li>Choose folder containing survey data (may contain multiple FileIDs)</li>
-            <li>Application will automatically load the first FileID</li>
-            <li>Use navigation buttons to switch between FileIDs</li>
+            <li>Navigate to desired time using slider or arrow keys</li>
+            <li>Click lane button (1-4) to assign at current time</li>
+            <li>For lane changes: drag the yellow marker to select end time</li>
+            <li>Timeline colors update to show assignments</li>
         </ol>
-
-        <h3>2. Navigate Images</h3>
-        <ul>
-            <li>Use slider or Previous/Next buttons to navigate between images</li>
-            <li>Timeline below shows current time position and lane assignments</li>
-            <li>Click on timeline to jump to specific time</li>
-            <li>Double-click timeline to zoom in/out</li>
-            <li>Keyboard shortcuts: Left/Right arrows, Space (play/pause)</li>
-        </ul>
-
-        <h3>3. Lane Coding</h3>
-        <p>The application supports various lane assignment types:</p>
-        <ul>
-            <li><b>Lane 1-4:</b> Main traffic lanes</li>
-            <li><b>SK (Shoulder):</b> Road shoulder (automatically appends lane number, e.g., SK1, SK2)</li>
-            <li><b>TK/TM:</b> Left/right turns (automatically appends selected lane number, e.g., TK1, TM2)</li>
-            <li><b>Ignore:</b> Ignore this time period (writes '1' to Ignore column in CSV)</li>
-        </ul>
-
-        <h4>How to Code Lanes:</h4>
-        <ol>
-            <li>Navigate to the time point to code</li>
-            <li>Click the corresponding lane type button</li>
-            <li>For lane changes, a dialog will appear with instructions</li>
-            <li>Drag the yellow marker on the timeline to select the end time</li>
-            <li>The image preview will update as you drag the marker</li>
-            <li>Release the marker to confirm the lane change</li>
-        </ol>
-
-        <h4>Lane Change Feature:</h4>
-        <p>When changing lanes, the application uses an interactive marker system:</p>
-        <ul>
-            <li>Click any lane button (1-4, SK, TK, TM) to initiate lane change</li>
-            <li>A dialog appears explaining how to use the marker</li>
-            <li>The yellow marker appears on the timeline at the current time</li>
-            <li>Drag the marker to select the end time for the lane change</li>
-            <li>The image preview automatically syncs with marker position</li>
-            <li>Release the marker to apply the change</li>
-            <li>Timeline colors update to show the new lane assignment</li>
-        </ul>
 
         <h4>Special Lane Types:</h4>
         <ul>
-            <li><b>SK Button:</b> Assigns shoulder lane. If currently on lane 1-4, automatically codes as SK1, SK2, etc.</li>
-            <li><b>TK/TM Buttons:</b> Assigns turn lanes. Must select a base lane (1-4) first, then codes as TK1/TM1, etc.</li>
-            <li><b>Ignore Button:</b> Marks time period as ignored. Useful for excluding invalid data periods.</li>
+            <li><b>SK (Shoulder):</b> Click SK button - automatically codes as SK + current lane</li>
+            <li><b>TK/TM (Turns):</b> Click TK1/TM1 buttons directly for turn lanes</li>
+            <li><b>Ignore:</b> Mark time periods to exclude from analysis</li>
         </ul>
 
-        <h3>4. Event Coding</h3>
-        <p>The timeline shows events as colored bars. You can:</p>
+        <h4>Lane Change Process:</h4>
+        <ol>
+            <li>Click any lane button to start change</li>
+            <li>Dialog appears with marker instructions</li>
+            <li>Yellow marker shows on timeline at current position</li>
+            <li>Drag marker to select end time (image preview updates)</li>
+            <li>Release marker to confirm change</li>
+        </ol>
+
+        <h3>4. Timeline Navigation</h3>
         <ul>
-            <li>Click events to view details</li>
-            <li>Edit event properties</li>
-            <li>Add new events</li>
-            <li>Delete events</li>
+            <li><b>Click:</b> Jump to specific time</li>
+            <li><b>Double-click:</b> Zoom in/out</li>
+            <li><b>Drag:</b> Pan left/right when zoomed</li>
+            <li>Colored bars show lane assignments and events</li>
+            <li>Hover for time and lane details</li>
         </ul>
 
-        <h3>5. Data Export</h3>
+        <h3>5. Image Navigation</h3>
         <ul>
-            <li>Lane data is automatically saved on changes</li>
-            <li>Individual FileID lane files: <code>{FileID}_lane_fixes.csv</code></li>
-            <li>Merged lane files for multiple FileIDs</li>
-            <li>Event data export to CSV</li>
-            <li>CSV format includes: Plate, From, To, Lane, Ignore, FileID (for merged), etc.</li>
-        </ul>
-
-        <h2>Keyboard Shortcuts and Tips</h2>
-        <ul>
-            <li><b>Ctrl+O:</b> Open folder</li>
-            <li><b>F1:</b> User guide</li>
+            <li><b>Slider:</b> Drag to navigate images</li>
+            <li><b>Arrow keys:</b> Previous/next image</li>
             <li><b>Space:</b> Play/pause slideshow</li>
-            <li><b>Left/Right arrows:</b> Previous/next image</li>
-            <li>Double-click on timeline to zoom</li>
-            <li>Right-click for context menu</li>
-            <li>Theme switching in View menu</li>
+            <li>Image info shows timestamp, GPS coordinates</li>
         </ul>
 
-        <h2>Advanced Features</h2>
-        <h3>Memory Management</h3>
-        <p>The application monitors memory usage and automatically clears caches when needed.</p>
+        <h3>6. Data Management</h3>
+        <h4>Automatic Saving:</h4>
+        <ul>
+            <li>Lane assignments save automatically on changes</li>
+            <li>Data saves when switching FileIDs or folders</li>
+            <li>Status bar shows autosave status</li>
+            <li>Each FileID has separate lane data file</li>
+        </ul>
 
-        <h3>Autosave</h3>
-        <p>Changes are automatically saved. Status shown in status bar.</p>
+        <h4>Manual Data Merge:</h4>
+        <ul>
+            <li>Select <b>File > Merge All Data</b> to combine all FileIDs</li>
+            <li>Creates merged CSV files in root folder</li>
+            <li>Individual FileID files remain unchanged</li>
+            <li>Use when ready to export final combined dataset</li>
+        </ul>
 
-        <h3>Theme Support</h3>
-        <p>Switch between Light and Dark themes. Themes persist across sessions and work consistently in exe builds.</p>
+        <h3>7. Event Management</h3>
+        <ul>
+            <li>Timeline shows events as colored bars</li>
+            <li>Click events to view/edit details</li>
+            <li>Add, edit, or delete events as needed</li>
+            <li>Events export with lane data</li>
+        </ul>
+
+        <h2>Interface Overview</h2>
+        <h3>Main Components:</h3>
+        <ul>
+            <li><b>Menu Bar:</b> File operations, view options, help</li>
+            <li><b>Toolbar:</b> FileID navigation, lane buttons, controls</li>
+            <li><b>Image Panel:</b> Current camera image with timestamp/GPS</li>
+            <li><b>Timeline:</b> Time-based view of lane assignments and events</li>
+            <li><b>Status Bar:</b> FileID info, memory usage, autosave status</li>
+        </ul>
+
+        <h2>Keyboard Shortcuts</h2>
+        <table border="1" cellpadding="5" cellspacing="0">
+            <tr><th>Shortcut</th><th>Action</th></tr>
+            <tr><td>Ctrl+O</td><td>Open folder</td></tr>
+            <tr><td>F1</td><td>Show user guide</td></tr>
+            <tr><td>Space</td><td>Play/pause slideshow</td></tr>
+            <tr><td>← →</td><td>Previous/next image</td></tr>
+            <tr><td>Ctrl+S</td><td>Manual save (if needed)</td></tr>
+        </table>
+
+        <h2>Best Practices</h2>
+        <h3>Efficient Coding:</h3>
+        <ul>
+            <li>Work through FileIDs systematically using navigation buttons</li>
+            <li>Use timeline zoom for detailed work</li>
+            <li>Regularly check status bar for autosave confirmation</li>
+            <li>Use Ignore for invalid data periods</li>
+        </ul>
+
+        <h3>Data Organization:</h3>
+        <ul>
+            <li>Each FileID maintains separate lane assignments</li>
+            <li>Data automatically saves when switching</li>
+            <li>Use manual merge only when all FileIDs are complete</li>
+            <li>Individual files preserve original data integrity</li>
+        </ul>
+
+        <h3>Performance Tips:</h3>
+        <ul>
+            <li>Application loads only current FileID data</li>
+            <li>Fast switching between FileIDs</li>
+            <li>Memory usage monitored automatically</li>
+            <li>Close other applications if experiencing slowdowns</li>
+        </ul>
 
         <h2>Troubleshooting</h2>
-        <h3>Application Won't Start</h3>
+        <h3>Common Issues:</h3>
+
+        <h4>Data Won't Load:</h4>
         <ul>
-            <li>Check Python version (requires 3.8+)</li>
-            <li>Reinstall dependencies: <code>pip install -r requirements.txt</code></li>
-            <li>Check for missing PyQt6 installation</li>
+            <li>Verify FileID folder structure</li>
+            <li>Check for required files: .driveevt, .driveiri, Cam1 images</li>
+            <li>Ensure network paths are accessible</li>
+            <li>Check application logs for specific errors</li>
         </ul>
 
-        <h3>Data Won't Load</h3>
+        <h4>Lane Assignment Problems:</h4>
         <ul>
-            <li>Check FileID folder structure</li>
-            <li>Ensure .driveevt and .driveiri files exist</li>
-            <li>Check Cam1 folder for images</li>
-            <li>Check logs for specific errors</li>
+            <li>Ensure data folder is loaded</li>
+            <li>Check for time overlaps with existing assignments</li>
+            <li>Ignore periods block other assignments</li>
+            <li>For changes: always drag and release the yellow marker</li>
+            <li>SK requires being on a lane (1-4) first</li>
+            <li>TK/TM lanes work like regular lanes - click directly</li>
         </ul>
 
-        <h3>Lane Assignment Not Working</h3>
-        <ul>
-            <li>Ensure data folder is opened</li>
-            <li>Check for overlap with current lane assignments</li>
-            <li>Ignore periods don't allow other lane assignments</li>
-            <li>For lane changes: ensure you drag the yellow marker to select end time</li>
-            <li>Lane changes require releasing the marker to apply</li>
-            <li>SK/TK/TM require proper lane selection</li>
-        </ul>
-
-        <h3>Theme Not Applying</h3>
-        <ul>
-            <li>Application forces Fusion style for consistency</li>
-            <li>Custom palette overrides system theme</li>
-            <li>Works in both development and exe builds</li>
-        </ul>
-
-        <h3>Performance Issues</h3>
+        <h4>Performance Issues:</h4>
         <ul>
             <li>Monitor memory usage in status bar</li>
-            <li>Application auto-clears caches when memory is low</li>
+            <li>Application auto-manages memory</li>
             <li>Close other applications if needed</li>
+            <li>Large datasets may take time to merge</li>
         </ul>
 
-        <h2>Contact</h2>
-        <p>If you encounter issues, please contact the GeoEvent development team.</p>
+        <h4>Data Concerns:</h4>
+        <ul>
+            <li>Each FileID has isolated lane data</li>
+            <li>Auto-save prevents data loss</li>
+            <li>Manual merge creates combined files</li>
+            <li>Original individual files remain intact</li>
+        </ul>
 
-        <h2>Version</h2>
-        <p>Current version: 2.0.0</p>
+        <h2>Version Information</h2>
+        <p><b>GeoEvent Version 2.0.0</b> - Optimized for efficient survey data coding</p>
         """
 
 

@@ -6,6 +6,7 @@ Manages scanning and navigation between multiple FileID folders
 import os
 import re
 import json
+import csv
 from datetime import datetime
 from typing import List, Optional
 from dataclasses import dataclass
@@ -17,6 +18,7 @@ class FileIDFolder:
     path: str
     has_driveevt: bool
     has_driveiri: bool
+    has_lane_fixes: bool
     image_count: int
     last_modified: datetime
 
@@ -105,14 +107,21 @@ class FileIDManager:
         try:
             driveevt_path = os.path.join(path, f"{fileid}.driveevt")
             driveiri_path = os.path.join(path, f"{fileid}.driveiri")
+            lane_fix_path = os.path.join(path, f"{fileid}_lane_fixes.csv")
 
             has_driveevt = os.path.exists(driveevt_path)
             has_driveiri = os.path.exists(driveiri_path)
+            has_lane_fixes = os.path.exists(lane_fix_path)
 
             # If no driveevt, try to create it
             if not has_driveevt:
                 if self._create_empty_driveevt(driveevt_path):
                     has_driveevt = True
+
+            # If no lane fix file, try to create it
+            if not has_lane_fixes:
+                if self._create_empty_lane_fix_file(lane_fix_path):
+                    has_lane_fixes = True
 
             # Count images
             image_count = 0
@@ -136,6 +145,7 @@ class FileIDManager:
                 path=path,
                 has_driveevt=has_driveevt,
                 has_driveiri=has_driveiri,
+                has_lane_fixes=has_lane_fixes,
                 image_count=image_count,
                 last_modified=last_modified
             )
@@ -159,6 +169,25 @@ class FileIDManager:
 
         except Exception as e:
             print(f"Failed to create empty driveevt {path}: {e}")
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            return False
+
+    def _create_empty_lane_fix_file(self, path: str) -> bool:
+        """Create empty lane fix CSV file with headers"""
+        try:
+            # Atomic write
+            temp_path = path + ".tmp"
+            with open(temp_path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                # Write header matching the example format
+                writer.writerow(['Plate', 'From', 'To', 'Lane', 'Ignore', 'RegionID', 'RoadID', 'Travel'])
+
+            os.replace(temp_path, path)
+            return True
+
+        except Exception as e:
+            print(f"Failed to create empty lane fix file {path}: {e}")
             if os.path.exists(temp_path):
                 os.remove(temp_path)
             return False

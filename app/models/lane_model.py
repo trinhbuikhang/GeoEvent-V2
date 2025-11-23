@@ -648,8 +648,11 @@ class LaneManager:
                 # Write header
                 writer.writerow(['Plate', 'From', 'To', 'Lane', 'Ignore', 'RegionID', 'RoadID', 'Travel'])
 
+                # Sort lane fixes by from_time before saving
+                sorted_fixes = sorted(self.lane_fixes, key=lambda x: x.from_time)
+
                 # Write data - format times as HH:MM:SS.sss
-                for fix in self.lane_fixes:
+                for fix in sorted_fixes:
                     writer.writerow([
                         fix.plate,
                         fix.from_time.strftime('%H:%M:%S.%f')[:-3],  # Remove last 3 digits of microseconds
@@ -661,7 +664,7 @@ class LaneManager:
                         'N'  # Travel direction
                     ])
 
-            logging.info(f"Saved {len(self.lane_fixes)} lane fixes to {lane_fix_path}")
+            logging.info(f"Saved {len(sorted_fixes)} lane fixes to {lane_fix_path}")
             self.has_changes = False  # Reset change flag after successful save
             return True
 

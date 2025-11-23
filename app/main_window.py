@@ -298,8 +298,8 @@ class MainWindow(QMainWindow):
                     logging.error("Failed to auto-save modified events")
                     overall_success = False
 
-            # Save lane fixes if modified
-            if hasattr(self.photo_tab, 'lane_manager') and self.photo_tab.lane_manager.has_changes:
+            # Save lane fixes (always save when switching FileID to ensure data integrity)
+            if hasattr(self.photo_tab, 'lane_manager') and self.photo_tab.lane_manager:
                 output_path = os.path.join(self.photo_tab.current_fileid.path, f"{self.photo_tab.current_fileid.fileid}_lane_fixes.csv")
                 # Backup existing file before overwriting
                 if os.path.exists(output_path):
@@ -313,10 +313,10 @@ class MainWindow(QMainWindow):
                         logging.error(f"Failed to backup lane fixes file: {str(e)}")
                 success = self.photo_tab.export_manager.export_lane_fixes(self.photo_tab.lane_manager.lane_fixes, output_path, include_file_id=False)
                 if success:
-                    # logging.info(f"Auto-saved {len(self.photo_tab.lane_manager.lane_fixes)} modified lane fixes to {output_path}")
+                    # logging.info(f"Auto-saved {len(self.photo_tab.lane_manager.lane_fixes)} lane fixes to {output_path}")
                     self.photo_tab.lane_manager.has_changes = False  # Reset after successful save
                 else:
-                    logging.error("Failed to auto-save modified lane fixes")
+                    logging.error("Failed to auto-save lane fixes")
                     overall_success = False
 
             # Update merged files after saving current FileID data
