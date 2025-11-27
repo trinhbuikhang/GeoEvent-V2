@@ -67,7 +67,8 @@ class SettingsManager:
                 'Wet Surface',
                 'Unsealed Road',
                 'Cattle Grid',
-                'Railway Crossing'
+                'Railway Crossing',
+                'Check Lane'
             ]
         }
 

@@ -290,6 +290,17 @@ class MainWindow(QMainWindow):
 
             # Save events if modified
             if self.photo_tab.events_modified:
+                # Backup existing .driveevt file before overwriting
+                driveevt_path = os.path.join(self.photo_tab.current_fileid.path, f"{self.photo_tab.current_fileid.fileid}.driveevt")
+                if os.path.exists(driveevt_path):
+                    import datetime
+                    backup_path = os.path.join(self.photo_tab.current_fileid.path, f"{self.photo_tab.current_fileid.fileid}_driveevt_backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.driveevt")
+                    try:
+                        import shutil
+                        shutil.copy2(driveevt_path, backup_path)
+                        # logging.info(f"Backed up existing .driveevt file to {backup_path}")
+                    except Exception as e:
+                        logging.error(f"Failed to backup .driveevt file: {str(e)}")
                 success = self.photo_tab.save_all_events_internal()
                 if success:
                     # logging.info(f"Auto-saved {len(self.photo_tab.events)} modified events for {self.photo_tab.current_fileid.fileid}")
@@ -754,6 +765,17 @@ class MainWindow(QMainWindow):
     def _save_merged_lane_fixes(self, lane_fixes: List, output_path: str) -> bool:
         """Save merged lane fixes to file"""
         try:
+            # Backup existing file before overwriting
+            if os.path.exists(output_path):
+                import datetime
+                backup_path = output_path + f".backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                try:
+                    import shutil
+                    shutil.copy2(output_path, backup_path)
+                    logging.info(f"Backed up existing merged lane fixes file to {backup_path}")
+                except Exception as e:
+                    logging.error(f"Failed to backup merged lane fixes file: {str(e)}")
+
             # Sort lane fixes by timestamp
             sorted_fixes = sorted(lane_fixes, key=lambda f: f.from_time)
 

@@ -316,10 +316,11 @@ class PhotoPreviewTab(QWidget):
         # Row 2: TK1-TK4 buttons
         tk_row = QHBoxLayout()
         tk_row.setSpacing(5)
-        tk_codes = ['TK1', 'TK2', 'TK3', 'TK4']
+        tk_codes = ['Turn Left 1', 'Turn Left 2', 'Turn Left 3', 'Turn Left 4']
+        tk_stored_codes = ['TK1', 'TK2', 'TK3', 'TK4']
         
-        for code in tk_codes:
-            btn = QPushButton(code)
+        for display_code, stored_code in zip(tk_codes, tk_stored_codes):
+            btn = QPushButton(display_code)
             btn.setStyleSheet("""
                 QPushButton {
                     background-color: #1976D2;
@@ -344,10 +345,10 @@ class PhotoPreviewTab(QWidget):
                     background-color: #FFC107;
                 }
             """)
-            btn.clicked.connect(lambda checked, c=code: self.assign_lane(c))
+            btn.clicked.connect(lambda checked, c=stored_code: self.assign_lane(c))
             btn.setMinimumHeight(35)
             btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            self.lane_button_map[code] = btn  # Store button reference
+            self.lane_button_map[stored_code] = btn  # Store button reference with stored code
             tk_row.addWidget(btn)
 
         parent_layout.addLayout(tk_row)
@@ -355,10 +356,11 @@ class PhotoPreviewTab(QWidget):
         # Row 3: TM1-TM4 buttons
         tm_row = QHBoxLayout()
         tm_row.setSpacing(5)
-        tm_codes = ['TM1', 'TM2', 'TM3', 'TM4']
+        tm_codes = ['Turn Right 1', 'Turn Right 2', 'Turn Right 3', 'Turn Right 4']
+        tm_stored_codes = ['TM1', 'TM2', 'TM3', 'TM4']
         
-        for code in tm_codes:
-            btn = QPushButton(code)
+        for display_code, stored_code in zip(tm_codes, tm_stored_codes):
+            btn = QPushButton(display_code)
             btn.setStyleSheet("""
                 QPushButton {
                     background-color: #1976D2;
@@ -383,10 +385,10 @@ class PhotoPreviewTab(QWidget):
                     background-color: #FFC107;
                 }
             """)
-            btn.clicked.connect(lambda checked, c=code: self.assign_lane(c))
+            btn.clicked.connect(lambda checked, c=stored_code: self.assign_lane(c))
             btn.setMinimumHeight(35)
             btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            self.lane_button_map[code] = btn  # Store button reference
+            self.lane_button_map[stored_code] = btn  # Store button reference with stored code
             tm_row.addWidget(btn)
 
         parent_layout.addLayout(tm_row)
@@ -800,7 +802,15 @@ class PhotoPreviewTab(QWidget):
             if exceeded_events:
                 for event in exceeded_events:
                     max_length = self._get_max_length_for_event(event.event_name)
-                    info_text += f"<br><font color='red'><b>WARNING:</b> {event.event_name} length ({event.length_meters:.1f}m) exceeds maximum ({max_length}m)</font>"
+                    chainage_info = f" at chainage {event.start_chainage:.1f}" if event.start_chainage else ""
+                    info_text += f"<br><font color='red'><b>WARNING:</b> {event.event_name} too long ({event.length_meters:.1f}m){chainage_info}</font>"
+
+            # Check for Check Lane events
+            check_lane_events = [event for event in self.events if event.event_name == "Check Lane"]
+            if check_lane_events:
+                for event in check_lane_events:
+                    chainage_info = f" at chainage {event.start_chainage:.1f}" if event.start_chainage else ""
+                    info_text += f"<br><font color='red'><b>WARNING:</b> Check Lane event detected{chainage_info}</font>"
 
             self.folder_info_label.setText(info_text)
 
@@ -1052,18 +1062,21 @@ class PhotoPreviewTab(QWidget):
 
         timestamp = self.current_metadata['timestamp']
 
+        # stored_lane_code is already the correct code from button click
+        stored_lane_code = lane_code
+
         # Luôn bật popup xác nhận đổi lane khi chuyển từ bất kỳ trạng thái nào sang trạng thái khác
         current_lane_at_time = self.lane_manager.get_lane_at_timestamp(timestamp)
-        if current_lane_at_time and current_lane_at_time != lane_code:
+        if current_lane_at_time and current_lane_at_time != stored_lane_code:
             # Dù là loại lane nào, đều bật smart change dialog
-            success = self._perform_smart_lane_change(lane_code, timestamp)
-        elif current_lane_at_time and current_lane_at_time == lane_code:
+            success = self._perform_smart_lane_change(stored_lane_code, timestamp)
+        elif current_lane_at_time and current_lane_at_time == stored_lane_code:
             # Đang ở cùng lane rồi, không cần làm gì
-            logging.info(f"PhotoPreviewTab: Already in lane {lane_code}, no change needed")
+            logging.info(f"PhotoPreviewTab: Already in lane {stored_lane_code}, no change needed")
             success = True
         else:
             # Nếu chưa có lane, thì gán trực tiếp
-            success = self.lane_manager.assign_lane(lane_code, timestamp)
+            success = self.lane_manager.assign_lane(stored_lane_code, timestamp)
             logging.info(f"PhotoPreviewTab: standard lane_manager.assign_lane returned success={success}")
             if success:
                 self.sync_lane_fixes_cache()  # Sync cache after direct lane assignment

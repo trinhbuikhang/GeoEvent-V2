@@ -150,6 +150,14 @@ class TimelineWidget(QWidget):
             'Intersection': QColor('#F39C12'),
             'Road Works': QColor('#9B59B6'),
             'Roundabout': QColor('#1ABC9C'),
+            'Pavers': QColor('#27AE60'),
+            'Railway Crossing': QColor('#8E44AD'),
+            'Detour': QColor('#E67E22'),
+            'Check Lane': QColor('#FF6B6B'),
+            'Surface Contamination': QColor('#8B4513'),
+            'Wet Surface': QColor('#5DADE2'),
+            'Unsealed Road': QColor('#F4A460'),
+            'Cattle Grid': QColor('#708090'),
         }
         self.default_color = QColor('#95A5A6')
 
@@ -865,6 +873,9 @@ class TimelineWidget(QWidget):
         height = layer_height - 2
 
         color = self.event_colors.get(event.event_name, self.default_color)
+        # Override with pink for length-exceeded events
+        if event.is_length_exceeded:
+            color = QColor('#FF69B4')  # Hot pink
         painter.fillRect(int(visible_start), y, int(width), height, color)
 
         # Event border
