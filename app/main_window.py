@@ -817,8 +817,17 @@ class MainWindow(QMainWindow):
 
     def show_settings_dialog(self):
         """Show settings dialog"""
+        # Store old cache size
+        old_cache_size = self.settings_manager.get_setting('image_cache_size', 500)
+
         dialog = SettingsDialog(self, self.settings_manager)
-        dialog.exec()
+        result = dialog.exec()
+
+        if result:  # Dialog was accepted
+            new_cache_size = self.settings_manager.get_setting('image_cache_size', 500)
+            if new_cache_size != old_cache_size:
+                # Update cache size in photo tab
+                self.photo_tab.update_cache_settings(new_cache_size)
 
     def show_about(self):
         """Show about dialog"""

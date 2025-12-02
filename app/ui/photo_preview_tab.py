@@ -22,6 +22,7 @@ from ..models.event_config import get_max_length_for_event
 from ..utils.data_loader import DataLoader
 from ..utils.image_utils import extract_image_metadata
 from ..utils.export_manager import ExportManager
+from ..utils.smart_image_cache import SmartImageCache
 from ..utils.minimap_overlay import MinimapOverlay
 from .timeline_widget import TimelineWidget
 
@@ -49,7 +50,11 @@ class PhotoPreviewTab(QWidget):
         self.gps_data: Optional[GPSData] = None
         self.lane_manager = None  # Will be set from data loader
 
-        self.image_cache = {}  # Simple cache for loaded images
+        # Initialize smart image cache
+        settings = self.main_window.settings_manager.get_setting('image_cache_size', 500)
+        self.image_cache = SmartImageCache(max_cache_size_mb=settings)
+        self.image_cache.cache_cleared.connect(self._on_cache_cleared)
+        self.image_cache.memory_warning.connect(self._on_memory_warning)
         self.events_modified = False  # Track if events have been modified
         self.events_per_fileid = {}  # Store events per FileID to preserve changes across switches
         self.lane_managers_per_fileid = {}  # Store lane managers per FileID to preserve changes across switches
@@ -888,8 +893,11 @@ class PhotoPreviewTab(QWidget):
 
         image_path = self.image_paths[self.current_index]
 
-        # Load image (with simple caching)
-        if image_path not in self.image_cache:
+        # Load image (with smart caching)
+        cached_pixmap = self.image_cache.get(image_path)
+        if cached_pixmap is not None:
+            pixmap = cached_pixmap
+        else:
             logging.info(f"Loading image: {os.path.basename(image_path)}")
             pixmap = QPixmap(image_path)
             if pixmap.isNull():
@@ -902,9 +910,8 @@ class PhotoPreviewTab(QWidget):
                 logging.debug(f"Scaling large image from {pixmap.width()}x{pixmap.height()} to width 1920")
                 pixmap = pixmap.scaledToWidth(1920, Qt.TransformationMode.FastTransformation)  # Use Fast instead of Smooth for speed
 
-            self.image_cache[image_path] = pixmap
-
-        pixmap = self.image_cache[image_path]
+            # Add to smart cache
+            self.image_cache.put(image_path, pixmap)
         
         # Scale image to fit available space (defer to avoid blocking UI)
         QTimer.singleShot(10, self.scale_image_to_fit)
@@ -930,10 +937,9 @@ class PhotoPreviewTab(QWidget):
             return
             
         image_path = self.image_paths[self.current_index]
-        if image_path not in self.image_cache:
+        pixmap = self.image_cache.get(image_path)
+        if pixmap is None:
             return
-            
-        pixmap = self.image_cache[image_path]
         
         # Get available size from scroll area
         if self.scroll_area and hasattr(self.scroll_area, 'viewport'):
@@ -1722,5 +1728,29 @@ class PhotoPreviewTab(QWidget):
     def sync_lane_fixes_cache(self):
         """Sync lane fixes cache with current lane manager state"""
         if hasattr(self, 'current_fileid') and self.current_fileid and self.lane_manager:
-            self.lane_fixes_per_fileid[self.current_fileid.fileid] = self.lane_manager.lane_fixes.copy()
-            logging.debug(f"Synced lane fixes cache for {self.current_fileid.fileid}: {len(self.lane_manager.lane_fixes)} fixes")
+            self.lane_fixes_per_fileid[self.current_fileid.fileid] = self.lane_manager.lane_fixes
+
+    def _on_cache_cleared(self, bytes_freed: int):
+        """Handle cache cleared signal"""
+        mb_freed = bytes_freed / (1024 * 1024)
+        logging.info(f"Image cache cleared, freed {mb_freed:.1f}MB")
+        # Could show user notification here if needed
+
+    def _on_memory_warning(self, usage_percent: int):
+        """Handle memory warning from cache"""
+        logging.warning(f"High memory usage detected: {usage_percent}%")
+        # Show warning to user
+        QMessageBox.warning(
+            self, "Memory Warning",
+            f"High system memory usage ({usage_percent}%). Image cache has been optimized."
+        )
+
+    def update_cache_settings(self, new_size_mb: int):
+        """Update cache size limit"""
+        old_stats = self.image_cache.get_stats()
+        self.image_cache.max_cache_size_bytes = new_size_mb * 1024 * 1024
+        # Force cleanup if current usage exceeds new limit
+        self.image_cache._ensure_capacity(0)
+        new_stats = self.image_cache.get_stats()
+        logging.info(f"Cache size updated: {old_stats['max_memory_mb']:.0f}MB -> {new_stats['max_memory_mb']:.0f}MB, evicted to {new_stats['memory_used_mb']:.1f}MB")
+        logging.debug(f"Synced lane fixes cache for {self.current_fileid.fileid}: {len(self.lane_manager.lane_fixes)} fixes")
