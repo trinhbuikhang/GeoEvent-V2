@@ -61,6 +61,9 @@ class PhotoPreviewTab(QWidget):
         self.lane_fixes_per_fileid = {}  # Store lane_fixes lists per FileID to preserve changes
         self.current_fileid = None  # Current FileID being displayed
 
+        # Current metadata for the currently displayed image
+        self.current_metadata = {}
+
         # Current position for warnings
         self.current_timestamp = None
 
