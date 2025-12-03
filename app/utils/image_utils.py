@@ -214,6 +214,7 @@ def validate_filename(filename: str) -> bool:
     Format: ProjectID-YYYY-MM-DD-HH-MM-SS-mmm-Lat-Lon-Bearing---Plate-FileID-Chainage-Distance-LE-.jpg
 
     Example: 250410.01-2025-10-01-19-37-03-304-4325.555329S-17238.975553E-22.9---QJS289-0D2510020820137700-5554013603272-16.64-LE-.jpg
+    Example: 250041-2025-11-26-20-10-24-862-3730.680559S-17510.095384E-156.4---NWZ263-0D2511270910197800-2580493456456-28.95-LE-.jpg
     """
     try:
         # Remove file extension
@@ -222,8 +223,10 @@ def validate_filename(filename: str) -> bool:
 
         filename_no_ext = filename[:-4]  # Remove .jpg
 
-        # Use regex to match the exact pattern
-        pattern = r'^(\d{6}\.\d{2})-(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{1,3})-(\d+\.\d+[NS])-(\d+\.\d+[EW])-(\d+(?:\.\d+)?)---([A-Z0-9]{6})-([A-Z0-9]+)-(\d+)-(\d+(?:\.\d+)?)-LE-$'
+        # Use regex to match the exact pattern - support both ProjectID formats:
+        # - 6 digits + dot + 2 digits (e.g., 250410.01)
+        # - 6 digits only (e.g., 250041)
+        pattern = r'^(\d{6}(?:\.\d{2})?)-(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{1,3})-(\d+\.\d+[NS])-(\d+\.\d+[EW])-(\d+(?:\.\d+)?)---([A-Z0-9]{6})-([A-Z0-9]+)-(\d+)-(\d+(?:\.\d+)?)-LE-$'
         
         match = re.match(pattern, filename_no_ext)
         if not match:
