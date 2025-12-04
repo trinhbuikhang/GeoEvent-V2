@@ -128,6 +128,8 @@ class TimelineWidget(QWidget):
         # Marker mode for lane changes
         self.lane_change_mode_active = False
         self.lane_change_new_lane: Optional[str] = None
+        self.slideshow_active = False
+        self.saved_zoom_level = 1.0
         self.lane_change_current_lane: Optional[str] = None
         self.lane_change_start_timestamp: Optional[datetime] = None
 
@@ -297,6 +299,19 @@ class TimelineWidget(QWidget):
         self.current_position = timestamp
         logging.info(f"TimelineWidget: current_position set to {self.current_position}")
 
+        # Skip all view range changes during slideshow to maintain zoom level
+        # But allow repositioning when marker goes off-screen
+        if self.slideshow_active:
+            # Check if current position is outside visible range (off-screen)
+            if self.view_start_time and self.view_end_time:
+                if timestamp > self.view_end_time:
+                    # Marker went off right edge, recenter view around current position
+                    current_span = self.view_end_time - self.view_start_time
+                    self.view_start_time = timestamp - (current_span / 2)
+                    self.view_end_time = timestamp + (current_span / 2)
+            self.timeline_area.update()
+            return
+            
         # Only set view range if no events are loaded yet
         # When events exist, ensure current position is visible while keeping events in view
         # But skip this logic in lane change mode to avoid unwanted panning
@@ -470,6 +485,14 @@ class TimelineWidget(QWidget):
 
     def zoom_changed(self, value):
         """Handle zoom slider change"""
+        if self.slideshow_active:
+            # During slideshow, force slider back to current zoom level
+            current_value = int(self.zoom_level * 100)
+            if value != current_value:
+                self.zoom_slider.blockSignals(True)
+                self.zoom_slider.setValue(current_value)
+                self.zoom_slider.blockSignals(False)
+            return
         if not self.base_view_start_time or not self.base_view_end_time:
             return
 

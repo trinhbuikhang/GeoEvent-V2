@@ -7,6 +7,7 @@ import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
+import csv
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QSlider, QFrame, QScrollArea, QGroupBox, QButtonGroup, QSplitter, QSizePolicy, QMessageBox, QComboBox, QDialog, QRadioButton, QDialogButtonBox
@@ -820,6 +821,21 @@ class PhotoPreviewTab(QWidget):
                     chainage_info = f" at chainage {event.start_chainage:.1f}" if event.start_chainage else ""
                     info_text += f"<br><font color='red'><b>WARNING:</b> Check Lane event detected{chainage_info}</font>"
 
+            # Check for non-span Lane 2 events in .driveevt file
+            driveevt_path = os.path.join(metadata['path'], f"{metadata['fileid']}.driveevt")
+            if os.path.exists(driveevt_path):
+                try:
+                    with open(driveevt_path, 'r', encoding='utf-8', errors='replace') as f:
+                        reader = csv.DictReader(f)
+                        for row in reader:
+                            event_name = row.get('Event', '').strip()
+                            is_span = row.get('IsSpanEvent', '').lower() == 'true'
+                            time_utc = row.get('TimeUtc', '').strip()
+                            if not is_span and time_utc:
+                                info_text += f"<br><font color='red'><b>Check '{event_name}' at {time_utc}</b></font>"
+                except Exception as e:
+                    logging.warning(f"Error checking non-span events in {driveevt_path}: {e}")
+
             self.folder_info_label.setText(info_text)
 
     def _get_event_at_timestamp(self, timestamp: datetime) -> Optional[Event]:
@@ -1053,10 +1069,14 @@ class PhotoPreviewTab(QWidget):
             self.playback_timer.stop()
             self.play_btn.setText("▶ Play")
             self.is_playing = False
+            self.timeline.slideshow_active = False
+            # No need to restore zoom - we kept it unchanged
         else:
             self.playback_timer.start(self.playback_speed)
             self.play_btn.setText("⏸ Pause")
             self.is_playing = True
+            self.timeline.slideshow_active = True
+            # Keep current zoom level during slideshow - no need to change it
 
     def assign_lane(self, lane_code: str) -> bool:
         """Assign lane at current position with smart change logic"""
