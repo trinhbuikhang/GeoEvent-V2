@@ -83,6 +83,7 @@ class PhotoPreviewTab(QWidget):
 
         # Dictionary to store all lane buttons by lane code for highlighting
         self.lane_button_map = {}  # lane_code -> button
+        self.theme_name = "dark"
 
         self.data_loader = DataLoader()  # Data loading manager
         self.export_manager = ExportManager()  # Export manager
@@ -123,7 +124,6 @@ class PhotoPreviewTab(QWidget):
 
         # Folder information (right side of top row)
         self.folder_info_label = QLabel("Folder")
-        self.folder_info_label.setStyleSheet("border: 2px solid black; background-color: black; color: white; padding: 10px;")
         self.folder_info_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         self.folder_info_label.setWordWrap(True)
         self.folder_info_label.setMinimumSize(150, 200)
@@ -134,24 +134,22 @@ class PhotoPreviewTab(QWidget):
         right_layout.addLayout(top_row_layout)
 
         # Lanecode button control
-        lanecode_group = QGroupBox("LaneCode")
-        lanecode_group.setStyleSheet("QGroupBox { border: 2px solid black; padding: 10px; }")
+        self.lanecode_group = QGroupBox("LaneCode")
         lanecode_layout = QVBoxLayout()
         self.setup_lane_controls(lanecode_layout)
-        lanecode_group.setLayout(lanecode_layout)
-        lanecode_group.setMinimumHeight(180)
-        lanecode_group.setMaximumHeight(220)
-        right_layout.addWidget(lanecode_group, stretch=1)
+        self.lanecode_group.setLayout(lanecode_layout)
+        self.lanecode_group.setMinimumHeight(180)
+        self.lanecode_group.setMaximumHeight(220)
+        right_layout.addWidget(self.lanecode_group, stretch=1)
 
         # FileID button control
-        fileid_group = QGroupBox("FileID")
-        fileid_group.setStyleSheet("QGroupBox { border: 2px solid black; padding: 10px; }")
+        self.fileid_group = QGroupBox("FileID")
         fileid_layout = QHBoxLayout()
         self.setup_fileid_controls(fileid_layout)
-        fileid_group.setLayout(fileid_layout)
-        fileid_group.setMinimumHeight(60)
-        fileid_group.setMaximumHeight(80)
-        right_layout.addWidget(fileid_group)
+        self.fileid_group.setLayout(fileid_layout)
+        self.fileid_group.setMinimumHeight(60)
+        self.fileid_group.setMaximumHeight(80)
+        right_layout.addWidget(self.fileid_group)
 
         top_splitter.addWidget(right_widget)
 
@@ -176,12 +174,11 @@ class PhotoPreviewTab(QWidget):
         bottom_layout.setSpacing(10)
 
         # Photo navigation buttons
-        nav_group = QGroupBox("Photo Navigation")
-        nav_group.setStyleSheet("QGroupBox { border: 2px solid black; padding: 5px; }")
+        self.nav_group = QGroupBox("Photo Navigation")
         nav_layout = QHBoxLayout()
         self.setup_navigation_buttons(nav_layout)
-        nav_group.setLayout(nav_layout)
-        bottom_layout.addWidget(nav_group)
+        self.nav_group.setLayout(nav_layout)
+        bottom_layout.addWidget(self.nav_group)
 
         main_layout.addLayout(bottom_layout)
 
@@ -193,16 +190,17 @@ class PhotoPreviewTab(QWidget):
         self.slider.setMinimumHeight(30)
         main_layout.addWidget(self.slider)
 
+        # Apply initial theme styles (updated again when MainWindow.set_theme runs)
+        self.apply_theme(self.theme_name)
+
     def setup_image_display(self, parent_layout):
         """Setup image display area"""
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setStyleSheet("border: 2px solid black;")
         self.scroll_area.setMinimumHeight(400)
 
         self.image_label = QLabel("Photo display canvas")
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image_label.setStyleSheet("background-color: #f0f0f0; font-size: 18px; font-weight: bold;")
         self.scroll_area.setWidget(self.image_label)
 
         parent_layout.addWidget(self.scroll_area)
@@ -226,7 +224,6 @@ class PhotoPreviewTab(QWidget):
 
         self.position_label = QLabel("0 / 0")
         self.position_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.position_label.setStyleSheet("font-weight: bold; font-size: 14px;")
         parent_layout.addWidget(self.position_label)
 
         # Speed control radio buttons
@@ -284,35 +281,6 @@ class PhotoPreviewTab(QWidget):
         for code, name in zip(lane_codes, lane_names):
             btn = QPushButton(name)
             btn.setCheckable(True)
-            btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #1976D2;
-                    color: white;
-                    border: 1px solid #0D47A1;
-                    padding: 8px;
-                    font-weight: bold;
-                }
-                QPushButton:checked {
-                    background-color: #4CAF50;
-                    color: white;
-                    border: 2px solid #388E3C;
-                }
-                QPushButton[current="true"] {
-                    background-color: #FFD700;
-                    color: black;
-                    border: 3px solid #FFA000;
-                    font-weight: bold;
-                }
-                QPushButton:hover {
-                    background-color: #1565C0;
-                }
-                QPushButton:checked:hover {
-                    background-color: #45a049;
-                }
-                QPushButton[current="true"]:hover {
-                    background-color: #FFC107;
-                }
-            """)
             btn.clicked.connect(lambda checked, c=code: self.assign_lane(c))
             btn.setMinimumHeight(35)
             btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -474,20 +442,172 @@ class PhotoPreviewTab(QWidget):
 
         # Row 3: Current lane label
         self.current_lane_label = QLabel("Current: None")
-        self.current_lane_label.setStyleSheet("""
-            QLabel {
-                font-weight: bold;
-                font-size: 12px;
-                padding: 4px;
-                background-color: #34495E;
-                color: white;
-                border: 1px solid #2C3E50;
-                border-radius: 3px;
-            }
-        """)
         self.current_lane_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.current_lane_label.setMaximumHeight(50)
         parent_layout.addWidget(self.current_lane_label)
+
+    def _get_theme_colors(self, theme_name: str) -> dict:
+        """Return color palette for the given theme"""
+        light = {
+            "panel_bg": "#f7f9fc",
+            "panel_border": "#cfd7e3",
+            "text": "#1f2933",
+            "muted_text": "#334155",
+            "canvas_bg": "#eef2f7",
+            "info_bg": "#ffffff",
+            "info_text": "#111827",
+            "info_border": "#d5dce6",
+            "primary_bg": "#2b7de9",
+            "primary_border": "#1f5fb3",
+            "primary_hover": "#3c8bf0",
+            "button_text": "#ffffff",
+            "current_bg": "#ffd166",
+            "current_border": "#f2a600",
+            "current_hover": "#ffe08f",
+            "current_text": "#1f2933",
+            "warning_bg": "#f4a261",
+            "warning_border": "#e17a1c",
+            "warning_hover": "#f7b57d",
+            "danger_bg": "#ef4444",
+            "danger_border": "#c81e1e",
+            "danger_hover": "#f87171",
+        }
+
+        dark = {
+            "panel_bg": "#2c3e50",
+            "panel_border": "#1f2a36",
+            "text": "#ecf0f1",
+            "muted_text": "#d0d7de",
+            "canvas_bg": "#2c3e50",
+            "info_bg": "#0f172a",
+            "info_text": "#f8fafc",
+            "info_border": "#23303f",
+            "primary_bg": "#1976D2",
+            "primary_border": "#0D47A1",
+            "primary_hover": "#2980B9",
+            "button_text": "#ffffff",
+            "current_bg": "#FFD700",
+            "current_border": "#FFA000",
+            "current_hover": "#FFEA7A",
+            "current_text": "#000000",
+            "warning_bg": "#FF9800",
+            "warning_border": "#E65100",
+            "warning_hover": "#FFB74D",
+            "danger_bg": "#F44336",
+            "danger_border": "#B71C1C",
+            "danger_hover": "#EF5350",
+        }
+
+        return light if theme_name == "light" else dark
+
+    def _style_button(self, button: QPushButton, colors: dict, *, variant: str = "primary", padding: int = 8):
+        """Apply consistent button styling for a given variant"""
+        if variant == "warning":
+            base = colors["warning_bg"]
+            border = colors["warning_border"]
+            hover = colors["warning_hover"]
+        elif variant == "danger":
+            base = colors["danger_bg"]
+            border = colors["danger_border"]
+            hover = colors["danger_hover"]
+        else:
+            base = colors["primary_bg"]
+            border = colors["primary_border"]
+            hover = colors["primary_hover"]
+
+        style = f"""
+            QPushButton {{
+                background-color: {base};
+                color: {colors['button_text']};
+                border: 1px solid {border};
+                padding: {padding}px;
+                font-weight: bold;
+                border-radius: 4px;
+            }}
+            QPushButton:hover {{
+                background-color: {hover};
+            }}
+            QPushButton[current="true"] {{
+                background-color: {colors['current_bg']};
+                color: {colors['current_text']};
+                border: 2px solid {colors['current_border']};
+            }}
+            QPushButton[current="true"]:hover {{
+                background-color: {colors['current_hover']};
+            }}
+        """
+        button.setStyleSheet(style)
+
+    def apply_theme(self, theme_name: str):
+        """Update widget styles to match the active theme"""
+        self.theme_name = theme_name
+        colors = self._get_theme_colors(theme_name)
+
+        # Panels and labels
+        self.folder_info_label.setStyleSheet(
+            f"border: 1px solid {colors['info_border']}; "
+            f"background-color: {colors['info_bg']}; "
+            f"color: {colors['info_text']}; "
+            "padding: 10px; "
+            "border-radius: 6px;"
+        )
+
+        group_style = (
+            "QGroupBox {{"
+            f" background-color: {colors['panel_bg']};"
+            f" border: 1px solid {colors['panel_border']};"
+            " border-radius: 6px;"
+            " margin-top: 6px;"
+            " padding: 8px;"
+            f" color: {colors['text']};"
+            "}}"
+            "QGroupBox::title {"
+            " subcontrol-origin: margin;"
+            " left: 10px;"
+            " padding: 0 4px;"
+            " background-color: transparent;"
+            "}"
+        )
+        for group in (getattr(self, "lanecode_group", None), getattr(self, "fileid_group", None), getattr(self, "nav_group", None)):
+            if group:
+                group.setStyleSheet(group_style)
+
+        self.scroll_area.setStyleSheet(
+            f"border: 1px solid {colors['panel_border']}; background: {colors['panel_bg']}; border-radius: 6px;"
+        )
+        self.image_label.setStyleSheet(
+            f"background-color: {colors['canvas_bg']}; "
+            f"color: {colors['muted_text']}; "
+            "font-size: 18px; font-weight: bold; "
+            f"border: 1px solid {colors['panel_border']}; "
+            "border-radius: 6px;"
+        )
+        self.position_label.setStyleSheet(f"font-weight: bold; font-size: 14px; color: {colors['text']};")
+        self.current_lane_label.setStyleSheet(
+            f"font-weight: bold; font-size: 12px; padding: 6px; "
+            f"background-color: {colors['panel_bg']}; "
+            f"color: {colors['text']}; "
+            f"border: 1px solid {colors['panel_border']}; "
+            "border-radius: 4px;"
+        )
+
+        # Lane and control buttons
+        for code, button in self.lane_button_map.items():
+            variant = "primary"
+            padding = 8
+            if code in {"TK1", "TK2", "TK3", "TK4", "TM1", "TM2", "TM3", "TM4"}:
+                padding = 6
+            if code == "SK":
+                variant = "warning"
+                padding = 6
+            elif code == "":
+                variant = "danger"
+                padding = 6
+
+            self._style_button(button, colors, variant=variant, padding=padding)
+            # Refresh style to reflect property-based selectors
+            button.style().unpolish(button)
+            button.style().polish(button)
 
     def setup_fileid_controls(self, parent_layout):
         """Setup FileID navigation controls"""
@@ -832,7 +952,7 @@ class PhotoPreviewTab(QWidget):
                             is_span = row.get('IsSpanEvent', '').lower() == 'true'
                             time_utc = row.get('TimeUtc', '').strip()
                             if not is_span and time_utc:
-                                info_text += f"<br><font color='red'><b>Check '{event_name}' at {time_utc}</b></font>"
+                                info_text += f"<br><font color='red'><b>Check lane at {time_utc}</b></font>"
                 except Exception as e:
                     logging.warning(f"Error checking non-span events in {driveevt_path}: {e}")
 
@@ -852,25 +972,36 @@ class PhotoPreviewTab(QWidget):
     def _update_event_gps_data(self, event: Event):
         """Update GPS coordinates and chainage for an event based on its timestamps"""
         if not self.gps_data:
+            logging.warning(f"No GPS data available for event {getattr(event, 'event_id', 'unknown')}")
             return
 
-        # Update start position and chainage
-        start_pos = self.gps_data.interpolate_position(event.start_time)
-        if start_pos:
-            event.start_lat, event.start_lon = start_pos
+        try:
+            # Update start position and chainage
+            start_pos = self.gps_data.interpolate_position(event.start_time)
+            if start_pos:
+                event.start_lat, event.start_lon = start_pos
+            else:
+                event.start_lat, event.start_lon = None, None
 
-        start_chainage = self.gps_data.interpolate_chainage(event.start_time)
-        if start_chainage is not None:
-            event.start_chainage = start_chainage
+            start_chainage = self.gps_data.interpolate_chainage(event.start_time)
+            event.start_chainage = start_chainage if start_chainage is not None else None
 
-        # Update end position and chainage
-        end_pos = self.gps_data.interpolate_position(event.end_time)
-        if end_pos:
-            event.end_lat, event.end_lon = end_pos
+            # Update end position and chainage
+            end_pos = self.gps_data.interpolate_position(event.end_time)
+            if end_pos:
+                event.end_lat, event.end_lon = end_pos
+            else:
+                event.end_lat, event.end_lon = None, None
 
-        end_chainage = self.gps_data.interpolate_chainage(event.end_time)
-        if end_chainage is not None:
-            event.end_chainage = end_chainage
+            end_chainage = self.gps_data.interpolate_chainage(event.end_time)
+            event.end_chainage = end_chainage if end_chainage is not None else None
+
+        except (ValueError, KeyError, AttributeError, TypeError) as e:
+            logging.error(f"GPS interpolation failed for event {getattr(event, 'event_id', 'unknown')}: {e}")
+            event.start_lat, event.start_lon = None, None
+            event.end_lat, event.end_lon = None, None
+            event.start_chainage = None
+            event.end_chainage = None
 
     def navigate_to_image(self, index: int):
         """Navigate to specific image index"""
@@ -929,9 +1060,13 @@ class PhotoPreviewTab(QWidget):
                 logging.debug(f"Scaling large image from {pixmap.width()}x{pixmap.height()} to width 1920")
                 pixmap = pixmap.scaledToWidth(1920, Qt.TransformationMode.FastTransformation)  # Use Fast instead of Smooth for speed
 
-            # Add to smart cache
-            self.image_cache.put(image_path, pixmap)
-        
+            # Add to smart cache (guard against extremely large frames)
+            approx_bytes = pixmap.width() * pixmap.height() * 4  # RGBA size estimate
+            if approx_bytes <= 10 * 1024 * 1024:  # ~10MB cap per entry
+                self.image_cache.put(image_path, pixmap)
+            else:
+                logging.debug(f"Skip caching oversized frame (~{approx_bytes/1024/1024:.1f}MB) for {os.path.basename(image_path)}")
+
         # Scale image to fit available space (defer to avoid blocking UI)
         QTimer.singleShot(10, self.scale_image_to_fit)
         
@@ -1616,14 +1751,6 @@ class PhotoPreviewTab(QWidget):
                 height: 100%;
                 width: 100%;
             }}
-            .coord-control {{
-                background: white !important;
-                padding: 5px !important;
-                border: 1px solid #ccc !important;
-                border-radius: 3px !important;
-                font-family: monospace;
-                font-size: 11px;
-            }}
             /* Fix for bearing marker to ensure proper rotation */
             .bearing-marker {{
                 display: flex !important;
@@ -1638,14 +1765,13 @@ class PhotoPreviewTab(QWidget):
             // Global variables to persist across updates
             var map = null;
             var marker = null;
-            var coordDiv = null;
 
-            // Initialize map
-            map = L.map('map').setView([{lat}, {lon}], 18);
+            // Initialize map without attribution text
+            map = L.map('map', {{ attributionControl: false }}).setView([{lat}, {lon}], 18);
 
-            // Add OpenStreetMap tiles
+            // Add OpenStreetMap tiles (no attribution label)
             L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
-                attribution: '© OpenStreetMap contributors',
+                attribution: '',
                 maxZoom: 19
             }}).addTo(map);
 
@@ -1655,18 +1781,8 @@ class PhotoPreviewTab(QWidget):
             // Mark that path has been added if GPS data exists
             {f"window.pathAdded = true;" if (self.gps_data and hasattr(self.gps_data, 'points') and len(self.gps_data.points) > 0) else "window.pathAdded = false;"}
 
-            // Add coordinate display
-            var coordControl = L.control({{position: 'bottomleft'}});
-            coordControl.onAdd = function(map) {{
-                var div = L.DomUtil.create('div', 'coord-control');
-                coordDiv = div;
-                return div;
-            }};
-            coordControl.addTo(map);
-
             // Create initial marker
             updateMarker({lat}, {lon}, {bearing});
-            updateCoordinates({lat}, {lon}, {bearing});
 
             function updateMarker(lat, lon, bearing) {{
                 // Create custom marker with bearing arrow
@@ -1685,15 +1801,8 @@ class PhotoPreviewTab(QWidget):
                 }}
             }}
 
-            function updateCoordinates(lat, lon, bearing) {{
-                if (coordDiv) {{
-                    coordDiv.innerHTML = '<div>Lat: ' + lat.toFixed(6) + '<br>Lon: ' + lon.toFixed(6) + '<br>Bearing: ' + bearing.toFixed(1) + '°</div>';
-                }}
-            }}
-
             // Make functions globally available
             window.updateMinimapMarker = updateMarker;
-            window.updateMinimapCoordinates = updateCoordinates;
         </script>
     </body>
     </html>
@@ -1720,9 +1829,6 @@ class PhotoPreviewTab(QWidget):
                 if (map) {{
                     map.panTo([{lat}, {lon}]);
                 }}
-            }}
-            if (typeof window.updateMinimapCoordinates === 'function') {{
-                window.updateMinimapCoordinates({lat}, {lon}, {bearing});
             }}
             // Update path overlay
             {path_overlay_js}
@@ -1763,10 +1869,10 @@ class PhotoPreviewTab(QWidget):
         """Handle memory warning from cache"""
         logging.warning(f"High memory usage detected: {usage_percent}%")
         # Show warning to user
-        QMessageBox.warning(
-            self, "Memory Warning",
-            f"High system memory usage ({usage_percent}%). Image cache has been optimized."
-        )
+        # QMessageBox.warning(
+        #     self, "Memory Warning",
+        #     f"High system memory usage ({usage_percent}%). Image cache has been optimized."
+        # )
 
     def update_cache_settings(self, new_size_mb: int):
         """Update cache size limit"""

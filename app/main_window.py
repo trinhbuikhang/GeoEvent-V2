@@ -62,6 +62,7 @@ class MainWindow(QMainWindow):
         self.fileid_manager = FileIDManager()
         self.memory_manager = MemoryManager()
         self.autosave_manager = AutoSaveManager()
+        self.root_folder_path = None  # Parent folder containing FileID folders
 
         # Reset settings to defaults on startup to avoid conflicts
         self._reset_settings_on_startup()
@@ -74,7 +75,7 @@ class MainWindow(QMainWindow):
 
     def setup_ui(self):
         """Create menu, toolbar, status bar"""
-        self.setWindowTitle("GeoEvent - Road Survey Event Coding")
+        self._update_window_title()
         self.setGeometry(100, 100, 1400, 900)
 
         # Create central widget
@@ -97,6 +98,39 @@ class MainWindow(QMainWindow):
         # Initialize photo preview tab (will be loaded when folder is selected)
         self.photo_tab = PhotoPreviewTab(self)
         layout.addWidget(self.photo_tab)
+
+    def _get_root_folder_name(self):
+        """Return the active root folder name (parent of FileID folders)"""
+        if self.root_folder_path:
+            return os.path.basename(os.path.normpath(self.root_folder_path))
+
+        current = self.fileid_manager.get_current_fileid()
+        if current:
+            return os.path.basename(os.path.dirname(current.path))
+
+        if self.fileid_manager.fileid_list:
+            return os.path.basename(os.path.dirname(self.fileid_manager.fileid_list[0].path))
+
+        return None
+
+    def _update_window_title(self):
+        """Update window title with app name, version, and root folder"""
+        app_instance = QApplication.instance()
+        version = app_instance.applicationVersion() if app_instance else ""
+        if version and not version.lower().startswith("v"):
+            version_text = f"v{version}"
+        else:
+            version_text = version or None
+
+        root_name = self._get_root_folder_name()
+
+        parts = ["GeoEvent"]
+        if version_text:
+            parts.append(version_text)
+        if root_name:
+            parts.append(root_name)
+
+        self.setWindowTitle(" - ".join(parts))
 
     def create_toolbar(self):
         """Create main toolbar"""
@@ -147,8 +181,6 @@ class MainWindow(QMainWindow):
         file_menu.addAction(exit_action)
 
         # Edit menu
-        edit_menu = menubar.addMenu("Edit")
-        # Will add undo/redo actions later
 
         # View menu
         view_menu = menubar.addMenu("View")
@@ -216,6 +248,7 @@ class MainWindow(QMainWindow):
         )
 
         if folder_path:
+            self.root_folder_path = os.path.normpath(folder_path)
             try:
                 # Auto-save current data before switching folders (silent save)
                 self.auto_save_current_data_silent()
@@ -235,6 +268,7 @@ class MainWindow(QMainWindow):
 
                 # Update navigation
                 self.update_fileid_navigation()
+                self._update_window_title()
 
             except Exception as e:
                 QMessageBox.critical(
@@ -250,6 +284,7 @@ class MainWindow(QMainWindow):
             self.fileid_manager.set_current_fileid(fileid_folder.fileid)
             self.update_fileid_navigation()
             self.status_label.setText("Ready")
+            self._update_window_title()
         except Exception as e:
             QMessageBox.critical(
                 self, "Error",
@@ -651,16 +686,22 @@ class MainWindow(QMainWindow):
             # Reset to default palette
             QApplication.setPalette(QApplication.style().standardPalette())
 
+        # Propagate theme to child tabs/widgets that support it
+        if hasattr(self, "photo_tab") and self.photo_tab:
+            apply_theme = getattr(self.photo_tab, "apply_theme", None)
+            if callable(apply_theme):
+                apply_theme(theme_name)
+
     def handle_memory_warning(self, usage_percent):
         """Handle memory warning from MemoryManager"""
         self.memory_label.setText(f"{usage_percent}%")
 
         if usage_percent > 90:
             self.photo_tab.clear_caches()
-            QMessageBox.warning(
-                self, "Memory Warning",
-                f"High memory usage ({usage_percent}%). Cleared caches."
-            )
+            # QMessageBox.warning(
+            #     self, "Memory Warning",
+            #     f"High memory usage ({usage_percent}%). Cleared caches."
+            # )
 
     def handle_autosave(self, timestamp):
         """Handle autosave completion"""
@@ -670,10 +711,10 @@ class MainWindow(QMainWindow):
         """Show about dialog"""
         QMessageBox.about(
             self, "About GeoEvent",
-            "GeoEvent v2.0.0\n\n"
+            "GeoEvent v2.0.19\n\n"
             "PyQt6-based road survey event coding application\n"
             "with GPS-synchronized timeline.\n\n"
-            "© 2025 GeoEvent Team"
+            "© 2025 Pavement Team"
         )
 
     def closeEvent(self, event):
@@ -833,7 +874,8 @@ class MainWindow(QMainWindow):
         """Show about dialog"""
         QMessageBox.about(
             self, "About GeoEvent",
-            "GeoEvent v2.0.0\n\n"
+            "GeoEvent v2.0.19\n\n"
             "Road Survey Event Coding Application\n\n"
-            "Built with PyQt6 and Python"
+            "Built with PyQt6 and Python\n\n"
+            "© 2025 Pavement Team"
         )

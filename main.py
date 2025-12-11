@@ -7,10 +7,17 @@ PyQt6-based road survey event coding application
 import sys
 import os
 import logging
+from pathlib import Path
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPalette, QColor
+from PyQt6.QtGui import QPalette, QColor, QIcon
 from app.main_window import MainWindow
+
+def get_resource_path(relative_path: str) -> str:
+    """Return absolute path to resource, works for dev and PyInstaller"""
+    base_path = getattr(sys, "_MEIPASS", Path(__file__).parent)
+    return str(Path(base_path, relative_path))
+
 
 def setup_logging():
     """Setup logging configuration"""
@@ -38,9 +45,16 @@ def main():
     # Create application
     app = QApplication(sys.argv)
     app.setApplicationName("GeoEvent")
-    app.setApplicationVersion("2.0.0")
-    app.setOrganizationName("GeoEvent Team")
-    app.setStyle("Fusion")  # ép style
+    app.setApplicationVersion("2.0.19")
+    app.setOrganizationName("Pavement Team")
+    app.setStyle("Fusion")  # App-wide Fusion style
+    icon_path = get_resource_path(os.path.join("app", "ui", "icon", "Event.ico"))
+    app_icon = None
+    if os.path.exists(icon_path):
+        app_icon = QIcon(icon_path)
+        app.setWindowIcon(app_icon)
+    else:
+        logging.warning("App icon not found at %s", icon_path)
     
     # Set custom palette to override system theme
     palette = QPalette()
@@ -60,6 +74,8 @@ def main():
     app.setPalette(palette)
     # Create and show main window
     window = MainWindow()
+    if app_icon:
+        window.setWindowIcon(app_icon)
     window.showMaximized()
 
     # Start event loop

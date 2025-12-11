@@ -213,6 +213,7 @@ class TimelineWidget(QWidget):
         """Setup timeline controls"""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(18)  # Extra gap so labels/chainage markers don't touch controls
 
         # Timeline area
         self.timeline_area = TimelineArea(self)
@@ -221,6 +222,7 @@ class TimelineWidget(QWidget):
 
         # Control bar
         control_layout = QHBoxLayout()
+        control_layout.setContentsMargins(0, 12, 0, 0)  # Push controls further below the timeline
 
         # Zoom controls
         self.zoom_out_btn = QPushButton("−")
