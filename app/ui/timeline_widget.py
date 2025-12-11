@@ -294,6 +294,12 @@ class TimelineWidget(QWidget):
         timestamp = self.ensure_timezone(timestamp)
         
         logging.info(f"TimelineWidget: set_current_position called with timestamp={timestamp}")
+
+        # When user is dragging the marker, keep the view static to avoid jumping/label glitches
+        if self.dragging_marker:
+            self.current_position = timestamp
+            self.timeline_area.update()
+            return
         
         old_view_start = self.view_start_time
         old_view_end = self.view_end_time
@@ -969,38 +975,6 @@ class TimelineWidget(QWidget):
                 if rect.left() <= separator_x <= rect.right():
                     painter.setPen(QPen(QColor('#FFFFFF'), 2))  # White line, 2 pixels wide
                     painter.drawLine(separator_x, lane_bar_y, separator_x, lane_bar_y + lane_bar_height)
-
-    def paint_current_position(self, painter: QPainter, rect: QRect, pixels_per_second: float):
-        """Paint current position marker"""
-        if not self.current_position:
-            return
-
-        x = self.time_to_pixel(self.current_position, pixels_per_second, rect.left())
-
-        if rect.left() <= x <= rect.right():
-            # Choose color based on lane change mode
-            if self.lane_change_mode_active:
-                marker_color = QColor('#DDA0DD')  # Light purple for lane change mode
-                pen_width = 3  # Thicker for lane change
-            else:
-                marker_color = QColor('#FFFF00')  # Yellow for normal mode
-                pen_width = 1  # Normal thickness
-
-            painter.setPen(QPen(marker_color, pen_width))
-            painter.drawLine(int(x), rect.top(), int(x), rect.bottom())
-
-            # Large arrow pointing up above timeline area
-            painter.setPen(QPen(marker_color, pen_width))
-            painter.setBrush(QBrush(marker_color))
-            arrow_size = 25  # Larger arrow for easier clicking
-            arrow_y = 0  # Position above timeline area
-            # Draw arrow triangle pointing up
-            arrow_points = [
-                QPoint(int(x), arrow_y + arrow_size),  # Bottom point
-                QPoint(int(x) - arrow_size//2, arrow_y),  # Top left
-                QPoint(int(x) + arrow_size//2, arrow_y)   # Top right
-            ]
-            painter.drawPolygon(arrow_points)
 
     def paint_current_position(self, painter: QPainter, rect: QRect, pixels_per_second: float):
         """Paint current position marker"""
