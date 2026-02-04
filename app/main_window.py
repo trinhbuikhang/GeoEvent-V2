@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QFileDialog, QMessageBox, QLabel, QApplication
 )
 from PyQt6.QtGui import QAction, QActionGroup
-from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer
+from PyQt6.QtCore import QThread, pyqtSignal, Qt, QTimer, QMutexLocker
 from .ui.photo_preview_tab import PhotoPreviewTab
 from .utils.settings_manager import SettingsManager
 from .utils.fileid_manager import FileIDManager
@@ -327,56 +327,54 @@ class MainWindow(QMainWindow):
             """Perform all save operations and return overall success"""
             overall_success = True
 
-            # Save events if modified
-            if self.photo_tab.events_modified:
-                # Backup existing .driveevt file before overwriting
-                driveevt_path = os.path.join(self.photo_tab.current_fileid.path, f"{self.photo_tab.current_fileid.fileid}.driveevt")
-                if os.path.exists(driveevt_path):
-                    import datetime
-                    backup_path = os.path.join(self.photo_tab.current_fileid.path, f"{self.photo_tab.current_fileid.fileid}_driveevt_backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.driveevt")
-                    try:
-                        import shutil
-                        shutil.copy2(driveevt_path, backup_path)
-                        # logging.info(f"Backed up existing .driveevt file to {backup_path}")
-                    except Exception as e:
-                        logging.error(f"Failed to backup .driveevt file: {str(e)}")
-                success = self.photo_tab.save_all_events_internal()
-                if success:
-                    # logging.info(f"Auto-saved {len(self.photo_tab.events)} modified events for {self.photo_tab.current_fileid.fileid}")
-                    pass
-                else:
-                    logging.error("Failed to auto-save modified events")
-                    overall_success = False
+            # Thread-safe access to shared data
+            with QMutexLocker(self.photo_tab._data_mutex):
+                # Save events if modified
+                if self.photo_tab.events_modified:
+                    # Backup existing .driveevt file before overwriting
+                    driveevt_path = os.path.join(self.photo_tab.current_fileid.path, f"{self.photo_tab.current_fileid.fileid}.driveevt")
+                    if os.path.exists(driveevt_path):
+                        import datetime
+                        backup_path = os.path.join(self.photo_tab.current_fileid.path, f"{self.photo_tab.current_fileid.fileid}_driveevt_backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.driveevt")
+                        try:
+                            import shutil
+                            shutil.copy2(driveevt_path, backup_path)
+                            # logging.info(f"Backed up existing .driveevt file to {backup_path}")
+                        except Exception as e:
+                            logging.error(f"Failed to backup .driveevt file: {str(e)}")
+                    success = self.photo_tab.save_all_events_internal()
+                    if success:
+                        # logging.info(f"Auto-saved {len(self.photo_tab.events)} modified events for {self.photo_tab.current_fileid.fileid}")
+                        pass
+                    else:
+                        logging.error("Failed to auto-save modified events")
+                        overall_success = False
 
-            # Save lane fixes (always save when switching FileID to ensure data integrity)
-            if hasattr(self.photo_tab, 'lane_manager') and self.photo_tab.lane_manager:
-                output_path = os.path.join(self.photo_tab.current_fileid.path, f"{self.photo_tab.current_fileid.fileid}_lane_fixes.csv")
-                # Backup existing file before overwriting
-                if os.path.exists(output_path):
-                    import datetime
-                    backup_path = os.path.join(self.photo_tab.current_fileid.path, f"{self.photo_tab.current_fileid.fileid}_lane_fixes_backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
-                    try:
-                        import shutil
-                        shutil.copy2(output_path, backup_path)
-                        # logging.info(f"Backed up existing lane fixes file to {backup_path}")
-                    except Exception as e:
-                        logging.error(f"Failed to backup lane fixes file: {str(e)}")
-                success = self.photo_tab.export_manager.export_lane_fixes(self.photo_tab.lane_manager.lane_fixes, output_path, include_file_id=False)
-                if success:
-                    # logging.info(f"Auto-saved {len(self.photo_tab.lane_manager.lane_fixes)} lane fixes to {output_path}")
-                    self.photo_tab.lane_manager.has_changes = False  # Reset after successful save
-                else:
-                    logging.error("Failed to auto-save lane fixes")
-                    overall_success = False
-
-            # Update merged files after saving current FileID data
-            # Only merge if this is a significant operation (not during navigation)
-            # try:
-            #     self._merge_and_save_multi_fileid_data()
-            #     # logging.info("Updated merged files after auto-save")
-            # except Exception as e:
-            #     logging.error(f"Failed to update merged files: {e}")
-            #     overall_success = False
+                # Save lane fixes (always save when switching FileID to ensure data integrity)
+                if hasattr(self.photo_tab, 'lane_manager') and self.photo_tab.lane_manager:
+                    output_path = os.path.join(self.photo_tab.current_fileid.path, f"{self.photo_tab.current_fileid.fileid}_lane_fixes.csv")
+                    # Backup existing file before overwriting
+                    if os.path.exists(output_path):
+                        import datetime
+                        backup_path = os.path.join(self.photo_tab.current_fileid.path, f"{self.photo_tab.current_fileid.fileid}_lane_fixes_backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+                        try:
+                            import shutil
+                            shutil.copy2(output_path, backup_path)
+                            # logging.info(f"Backed up existing lane fixes file to {backup_path}")
+                        except Exception as e:
+                            logging.error(f"Failed to backup lane fixes file: {str(e)}")
+                    success = self.photo_tab.export_manager.export_lane_fixes(self.photo_tab.lane_manager.lane_fixes, output_path, include_file_id=False)
+                    if success:
+                        # logging.info(f"Auto-saved {len(self.photo_tab.lane_manager.lane_fixes)} lane fixes to {output_path}")
+                        self.photo_tab.lane_manager.has_changes = False  # Reset after successful save
+                    else:
+                        logging.error("Failed to auto-save lane fixes")
+                        overall_success = False
+                #     self._merge_and_save_multi_fileid_data()
+                #     # logging.info("Updated merged files after auto-save")
+                # except Exception as e:
+                #     logging.error(f"Failed to update merged files: {e}")
+                #     overall_success = False
 
             return overall_success
 

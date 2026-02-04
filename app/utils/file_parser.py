@@ -98,9 +98,11 @@ def _validate_gps_data_integrity(gps_data: GPSData) -> None:
 
 
 def parse_driveevt(file_path: str) -> List[Event]:
+    """Parse driveevt file with comprehensive error handling"""
     events = []
 
     if not _validate_file_path(file_path, check_write=False):
+        logging.warning(f"File validation failed for: {file_path}")
         return events
 
     skipped_count = 0
@@ -108,6 +110,18 @@ def parse_driveevt(file_path: str) -> List[Event]:
     try:
         with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
             reader = csv.DictReader(f)
+            
+            # Validate CSV header
+            if not reader.fieldnames:
+                logging.error(f"No header found in CSV file: {file_path}")
+                return events
+            
+            required_fields = ['TimeUtc', 'IsSpanEvent', 'SpanEvent']
+            missing_fields = [field for field in required_fields if field not in reader.fieldnames]
+            if missing_fields:
+                logging.error(f"Missing required fields in {file_path}: {missing_fields}")
+                return events
+            
             start_events = []
             end_events = []
 
@@ -205,20 +219,29 @@ def parse_driveevt(file_path: str) -> List[Event]:
 
     except FileNotFoundError:
         logging.error(f"File not found: {file_path}")
+        raise
     except PermissionError:
         logging.error(f"Permission denied reading file: {file_path}")
+        raise
+    except UnicodeDecodeError as e:
+        logging.error(f"Unicode decode error in {file_path}: {e}")
+        raise ValueError(f"File encoding error in {file_path}: {e}")
     except csv.Error as e:
         logging.error(f"CSV parsing error in {file_path}: {e}")
+        raise ValueError(f"Malformed CSV file {file_path}: {e}")
     except Exception as e:
-        logging.error(f"Unexpected error parsing {file_path}: {e}")
+        logging.error(f"Unexpected error parsing {file_path}: {e}", exc_info=True)
+        raise
 
     return events
 
 
 def parse_driveiri(file_path: str) -> GPSData:
+    """Parse driveiri GPS file with comprehensive error handling"""
     gps_data = GPSData()
 
     if not _validate_file_path(file_path, check_write=False):
+        logging.warning(f"File validation failed for: {file_path}")
         return gps_data
 
     skipped_count = 0
@@ -227,6 +250,12 @@ def parse_driveiri(file_path: str) -> GPSData:
     try:
         with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
             reader = csv.DictReader(f)
+            
+            # Validate CSV header
+            if not reader.fieldnames:
+                logging.error(f"No header found in GPS file: {file_path}")
+                return gps_data
+            
             for row_idx, row in enumerate(reader):
                 try:
                     unix_timestamp_str = row.get('Unix', '')

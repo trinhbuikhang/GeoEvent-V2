@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QSlider, QFrame, QScrollArea, QGroupBox, QButtonGroup, QSplitter, QSizePolicy, QMessageBox, QComboBox, QDialog, QRadioButton, QDialogButtonBox
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize, QMutex, QMutexLocker
 from PyQt6.QtGui import QPixmap, QImage, QPainter, QPen, QBrush, QShortcut, QKeySequence
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 
@@ -50,6 +50,9 @@ class PhotoPreviewTab(QWidget):
         self.events: List[Event] = []
         self.gps_data: Optional[GPSData] = None
         self.lane_manager = None  # Will be set from data loader
+
+        # Thread safety: Mutex for protecting shared data access
+        self._data_mutex = QMutex()
 
         # Initialize smart image cache
         settings = self.main_window.settings_manager.get_setting('image_cache_size', 500)

@@ -178,11 +178,12 @@ class DataLoader:
                     for f in valid_image_files
                 ]
                 
-                # Sort by timestamp instead of filename to handle millisecond padding correctly
+                # Sort by timestamp using fast extraction instead of full metadata parsing
                 def get_image_timestamp(path):
                     try:
-                        metadata = extract_image_metadata(path)
-                        return metadata.get('timestamp') or datetime.min.replace(tzinfo=timezone.utc)
+                        from ..utils.image_utils import extract_timestamp_fast
+                        timestamp = extract_timestamp_fast(os.path.basename(path))
+                        return timestamp or datetime.min.replace(tzinfo=timezone.utc)
                     except Exception:
                         return datetime.min.replace(tzinfo=timezone.utc)
                 

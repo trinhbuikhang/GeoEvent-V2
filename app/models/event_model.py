@@ -5,8 +5,11 @@ Event data model for GeoEvent application
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
+import logging
 
 from .event_config import is_event_length_exceeded
+from app.security.sanitizer import InputSanitizer
+from app.security.validator import InputValidator
 
 @dataclass
 class Event:
@@ -62,24 +65,61 @@ class Event:
 
     @classmethod
     def from_dict(cls, data: dict) -> 'Event':
-        """Create Event from dictionary"""
+        """Create Event from dictionary with validation"""
+        # Validate and sanitize event name
+        event_name = data['event_name']
+        name_validation = InputValidator.validate_event_name(event_name)
+        if not name_validation.is_valid:
+            logging.warning(f"Invalid event name: {name_validation.error_message}")
+            event_name = InputSanitizer.sanitize_string(event_name, max_length=100)
+        else:
+            event_name = name_validation.sanitized_value
+        
+        # Validate coordinates if provided
+        start_lat = data.get('start_lat')
+        start_lon = data.get('start_lon')
+        if start_lat is not None and start_lon is not None:
+            coord_validation = InputValidator.validate_coordinates(start_lat, start_lon)
+            if not coord_validation.is_valid:
+                logging.warning(f"Invalid start coordinates: {coord_validation.error_message}")
+                start_lat, start_lon = None, None
+        
+        end_lat = data.get('end_lat')
+        end_lon = data.get('end_lon')
+        if end_lat is not None and end_lon is not None:
+            coord_validation = InputValidator.validate_coordinates(end_lat, end_lon)
+            if not coord_validation.is_valid:
+                logging.warning(f"Invalid end coordinates: {coord_validation.error_message}")
+                end_lat, end_lon = None, None
+        
+        # Validate chainage
+        start_chainage = data['start_chainage']
+        end_chainage = data['end_chainage']
+        chainage_validation = InputValidator.validate_chainage(start_chainage)
+        if not chainage_validation.is_valid:
+            logging.warning(f"Invalid start chainage: {chainage_validation.error_message}")
+        chainage_validation = InputValidator.validate_chainage(end_chainage)
+        if not chainage_validation.is_valid:
+            logging.warning(f"Invalid end chainage: {chainage_validation.error_message}")
+        
         start_dt = datetime.fromisoformat(data['start_time'])
         if start_dt.tzinfo is None:
             start_dt = start_dt.replace(tzinfo=timezone.utc)
         end_dt = datetime.fromisoformat(data['end_time'])
         if end_dt.tzinfo is None:
             end_dt = end_dt.replace(tzinfo=timezone.utc)
+        
         return cls(
             event_id=data['event_id'],
-            event_name=data['event_name'],
+            event_name=event_name,
             start_time=start_dt,
             end_time=end_dt,
-            start_chainage=data['start_chainage'],
-            end_chainage=data['end_chainage'],
-            start_lat=data.get('start_lat'),
-            start_lon=data.get('start_lon'),
-            end_lat=data.get('end_lat'),
-            end_lon=data.get('end_lon'),
+            start_chainage=start_chainage,
+            end_chainage=end_chainage,
+            start_lat=start_lat,
+            start_lon=start_lon,
+            end_lat=end_lat,
+            end_lon=end_lon,
             file_id=data.get('file_id', ''),
             color=data.get('color', '#95A5A6'),
             layer=data.get('layer', 0)

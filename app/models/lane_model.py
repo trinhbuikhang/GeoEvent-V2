@@ -10,6 +10,9 @@ import csv
 import os
 import logging
 
+from app.security.sanitizer import InputSanitizer
+from app.security.validator import InputValidator
+
 @dataclass
 class LaneFix:
     """
@@ -70,6 +73,19 @@ class LaneManager:
         All lane types create lane_fix entries for consistency
         Returns True if successful, False if overlap detected or timestamp invalid
         """
+        # Validate lane code
+        validation = InputValidator.validate_lane_code(lane_code)
+        if not validation.is_valid:
+            logging.error(f"Invalid lane code: {validation.error_message}")
+            return False
+        lane_code = validation.sanitized_value  # Use sanitized value
+        
+        # Validate plate
+        if self.plate:
+            plate_validation = InputValidator.validate_plate(self.plate)
+            if not plate_validation.is_valid:
+                logging.warning(f"Invalid plate: {plate_validation.error_message}")
+        
         if not self.plate or not self.fileid_folder:
             logging.warning("No plate or fileid_folder set for lane assignment")
             return False

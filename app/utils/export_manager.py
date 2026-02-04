@@ -7,12 +7,15 @@ import os
 import csv
 import shutil
 import logging
+import re
 from datetime import datetime
 from typing import List
 import pandas as pd
 
 from ..models.lane_model import LaneFix
 from ..models.event_model import Event
+from ..security.sanitizer import InputSanitizer
+from ..security.validator import InputValidator
 
 
 class ExportManager:
@@ -22,7 +25,7 @@ class ExportManager:
 
     def _validate_output_path(self, output_path: str) -> bool:
         """
-        Validate output path is safe and writable
+        Validate output path is safe and writable with security checks
         
         Args:
             output_path: Path to validate
@@ -31,6 +34,19 @@ class ExportManager:
             bool: True if path is valid and writable, False otherwise
         """
         try:
+            # Security validation
+            validation = InputValidator.validate_filepath(output_path)
+            if not validation:
+                logging.error(f"Filepath validation failed: {validation.error_message}")
+                return False
+            
+            # Sanitize path
+            try:
+                output_path = InputSanitizer.sanitize_filepath(output_path)
+            except ValueError as e:
+                logging.error(f"Path sanitization failed: {e}")
+                return False
+            
             # Check if path is absolute
             if not os.path.isabs(output_path):
                 logging.warning(f"Output path is not absolute: {output_path}")

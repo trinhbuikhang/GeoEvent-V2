@@ -11,6 +11,8 @@ from typing import Dict, Optional, Tuple
 from PyQt6.QtGui import QPixmap, QImage
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 
+from app.config import get_config
+
 class ImageCacheEntry:
     """Cache entry with metadata"""
     def __init__(self, pixmap: QPixmap, access_time: float, file_size: int):
@@ -38,10 +40,20 @@ class SmartImageCache(QObject):
     cache_cleared = pyqtSignal(int)  # emitted when cache is cleared (bytes freed)
     memory_warning = pyqtSignal(int)  # emitted when memory usage is high
 
-    def __init__(self, max_cache_size_mb: int = 500, memory_threshold_percent: int = 75):
+    def __init__(self, max_cache_size_mb: int = None, memory_threshold_percent: int = None):
         super().__init__()
+        # Load configuration
+        config = get_config()
+        
+        # Use provided values or defaults from config
+        if max_cache_size_mb is None:
+            max_cache_size_mb = config.cache.DEFAULT_SIZE_MB
+        if memory_threshold_percent is None:
+            memory_threshold_percent = config.memory.WARNING_THRESHOLD_PERCENT
+        
         self.max_cache_size_bytes = max_cache_size_mb * 1024 * 1024
         self.memory_threshold_percent = memory_threshold_percent
+        self.preload_batch_size = config.cache.PRELOAD_BATCH_SIZE
 
         # LRU cache: OrderedDict with key=image_path, value=ImageCacheEntry
         self.cache: OrderedDict[str, ImageCacheEntry] = OrderedDict()
@@ -97,8 +109,15 @@ class SmartImageCache(QObject):
         return True
 
     def clear(self):
-        """Clear entire cache"""
+        """Clear entire cache with proper pixmap cleanup"""
         bytes_freed = self.total_memory_used
+        
+        # Explicitly delete pixmaps to prevent memory leak
+        for entry in self.cache.values():
+            if hasattr(entry.pixmap, 'detach'):
+                entry.pixmap.detach()
+            del entry.pixmap
+        
         self.cache.clear()
         self.total_memory_used = 0
         self.hits = 0
@@ -107,7 +126,7 @@ class SmartImageCache(QObject):
         logging.info(f"Cache cleared, freed {bytes_freed / (1024*1024):.1f}MB")
 
     def remove_old_entries(self, max_age_seconds: int = 300):
-        """Remove entries older than max_age_seconds"""
+        """Remove entries older than max_age_seconds with proper cleanup"""
         current_time = self._get_current_time()
         to_remove = []
 
@@ -119,6 +138,10 @@ class SmartImageCache(QObject):
         for path in to_remove:
             entry = self.cache[path]
             bytes_freed += entry.memory_size
+            # Explicitly delete pixmap to prevent memory leak
+            if hasattr(entry.pixmap, 'detach'):
+                entry.pixmap.detach()
+            del entry.pixmap
             del self.cache[path]
 
         if to_remove:
@@ -137,11 +160,18 @@ class SmartImageCache(QObject):
         }
 
     def _ensure_capacity(self, required_bytes: int):
-        """Ensure there's enough capacity for required_bytes"""
+        """Ensure there's enough capacity for required_bytes with proper cleanup"""
         while self.total_memory_used + required_bytes > self.max_cache_size_bytes and self.cache:
             # Remove least recently used item
             path, entry = self.cache.popitem(last=False)  # FIFO - least recently used
             self.total_memory_used -= entry.memory_size
+            
+            # Explicitly delete pixmap to prevent memory leak
+            if hasattr(entry.pixmap, 'detach'):
+                entry.pixmap.detach()
+            del entry.pixmap
+            del entry
+            
             logging.debug(f"Evicted {os.path.basename(path)} from cache")
 
     def _check_memory_usage(self):
@@ -169,6 +199,12 @@ class SmartImageCache(QObject):
                 break
             path, entry = self.cache.popitem(last=False)
             bytes_freed += entry.memory_size
+            
+            # Explicitly delete pixmap to prevent memory leak
+            if hasattr(entry.pixmap, 'detach'):
+                entry.pixmap.detach()
+            del entry.pixmap
+            del entry
 
         self.total_memory_used -= bytes_freed
         logging.warning(f"Emergency cleanup: removed {target_entries} entries, freed {bytes_freed / (1024*1024):.1f}MB")

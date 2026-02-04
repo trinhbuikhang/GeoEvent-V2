@@ -5,8 +5,95 @@ Extract metadata from survey image filenames
 
 import re
 import os
+import logging
 from datetime import datetime, timezone
 from typing import Dict, Optional, Tuple
+
+
+def parse_timestamp_safe(filename: str) -> Optional[datetime]:
+    """
+    Parse timestamp from filename with comprehensive validation
+    
+    Args:
+        filename: Image filename containing timestamp
+        
+    Returns:
+        datetime object or None if parsing fails
+    """
+    try:
+        # Extract timestamp parts with named groups
+        timestamp_match = re.search(
+            r'-(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})-'
+            r'(?P<hour>\d{2})-(?P<minute>\d{2})-(?P<second>\d{2})-(?P<ms>\d{1,3})-',
+            filename
+        )
+        
+        if not timestamp_match:
+            return None
+        
+        # Extract and validate components
+        year = int(timestamp_match.group('year'))
+        if not (2000 <= year <= 2100):
+            logging.warning(f"Invalid year {year} in {filename}")
+            return None
+        
+        month = int(timestamp_match.group('month'))
+        if not (1 <= month <= 12):
+            logging.warning(f"Invalid month {month} in {filename}")
+            return None
+        
+        day = int(timestamp_match.group('day'))
+        if not (1 <= day <= 31):
+            logging.warning(f"Invalid day {day} in {filename}")
+            return None
+        
+        hour = int(timestamp_match.group('hour'))
+        if not (0 <= hour <= 23):
+            logging.warning(f"Invalid hour {hour} in {filename}")
+            return None
+        
+        minute = int(timestamp_match.group('minute'))
+        if not (0 <= minute <= 59):
+            logging.warning(f"Invalid minute {minute} in {filename}")
+            return None
+        
+        second = int(timestamp_match.group('second'))
+        if not (0 <= second <= 59):
+            logging.warning(f"Invalid second {second} in {filename}")
+            return None
+        
+        ms_str = timestamp_match.group('ms')
+        ms_int = int(ms_str)
+        if not (0 <= ms_int <= 999):
+            logging.warning(f"Invalid milliseconds {ms_int} in {filename}")
+            return None
+        
+        # Create datetime with validation
+        try:
+            microseconds = ms_int * 1000
+            dt = datetime(year, month, day, hour, minute, second, microseconds, tzinfo=timezone.utc)
+            return dt
+        except ValueError as e:
+            logging.warning(f"Invalid date combination in {filename}: {e}")
+            return None
+    
+    except (ValueError, AttributeError) as e:
+        logging.warning(f"Failed to parse timestamp from {filename}: {e}")
+        return None
+
+
+def extract_timestamp_fast(filename: str) -> Optional[datetime]:
+    """
+    Fast timestamp extraction without full metadata parsing
+    Used for sorting large image lists
+    
+    Args:
+        filename: Image filename
+        
+    Returns:
+        datetime or None
+    """
+    return parse_timestamp_safe(filename)
 
 def extract_image_metadata(image_path: str) -> Dict:
     """
@@ -31,20 +118,10 @@ def extract_image_metadata(image_path: str) -> Dict:
     }
 
     try:
-        # Extract timestamp: YYYY-MM-DD-HH-MM-SS-mmm (milliseconds may be 1, 2 or 3 digits)
-        timestamp_match = re.search(r'-(\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d{1,3})-', filename)
-        if timestamp_match:
-            timestamp_str = timestamp_match.group(1)
-            # Convert YYYY-MM-DD-HH-MM-SS-mmm to datetime (handle 1, 2 or 3 digit milliseconds)
-            parts = timestamp_str.split('-')
-            ms_str = parts[-1]
-            # Convert milliseconds to microseconds (pad to 6 digits)
-            ms_value = int(ms_str)
-            microseconds = ms_value * 1000  # Convert ms to μs
-            parts[-1] = f'{microseconds:06d}'  # Format as 6-digit microseconds
-            timestamp_str = '-'.join(parts)
-            dt = datetime.strptime(timestamp_str, '%Y-%m-%d-%H-%M-%S-%f').replace(tzinfo=timezone.utc)
-            metadata['timestamp'] = dt
+        # Extract timestamp with improved validation
+        timestamp = parse_timestamp_safe(filename)
+        if timestamp:
+            metadata['timestamp'] = timestamp
 
         # Extract GPS coordinates
         coords = extract_coordinates(filename)
