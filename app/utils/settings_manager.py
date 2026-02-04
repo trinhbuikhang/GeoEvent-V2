@@ -57,6 +57,7 @@ class SettingsManager:
             'timeline_zoom_default': 10,
             'lane_assignment_mode': 'strict',  # 'strict' or 'permissive'
             'auto_save_on_navigation': True,  # Auto-save when switching FileID folders
+            'settings_migrated_v2': False,  # One-time migration flag to avoid startup resets
             'event_names': [
                 'Bridge',
                 'Pavers',

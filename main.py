@@ -45,7 +45,7 @@ def main():
     # Create application
     app = QApplication(sys.argv)
     app.setApplicationName("GeoEvent")
-    app.setApplicationVersion("2.0.19")
+    app.setApplicationVersion("2.0.20")
     app.setOrganizationName("Pavement Team")
     app.setStyle("Fusion")  # App-wide Fusion style
     icon_path = get_resource_path(os.path.join("app", "ui", "icon", "Event.ico"))

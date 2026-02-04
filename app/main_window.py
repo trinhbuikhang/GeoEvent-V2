@@ -64,8 +64,8 @@ class MainWindow(QMainWindow):
         self.autosave_manager = AutoSaveManager()
         self.root_folder_path = None  # Parent folder containing FileID folders
 
-        # Reset settings to defaults on startup to avoid conflicts
-        self._reset_settings_on_startup()
+        # Ensure settings file is initialized without clearing user preferences
+        self._ensure_settings_migration()
 
         self.photo_tab = None
 
@@ -207,6 +207,10 @@ class MainWindow(QMainWindow):
         settings_action = QAction("Settings...", self)
         settings_action.triggered.connect(self.show_settings_dialog)
         tools_menu.addAction(settings_action)
+
+        reset_settings_action = QAction("Reset Settings to Defaults", self)
+        reset_settings_action.triggered.connect(self._confirm_reset_settings)
+        tools_menu.addAction(reset_settings_action)
 
         # Help menu
         help_menu = menubar.addMenu("Help")
@@ -395,19 +399,30 @@ class MainWindow(QMainWindow):
             self.save_worker.wait()
             self.save_worker = None
 
-    def _reset_settings_on_startup(self):
-        """Reset settings to defaults on application startup"""
-        import os
-        settings_file = os.path.expanduser('~/.geoevent/settings.json')
-        if os.path.exists(settings_file):
-            try:
-                os.remove(settings_file)
-                print('Reset settings to defaults on startup')
-            except Exception as e:
-                print(f'Warning: Could not reset settings file: {e}')
+    def _ensure_settings_migration(self):
+        """Mark settings migration once without deleting user preferences"""
+        migration_flag = "settings_migrated_v2"
+        if not self.settings_manager.get_setting(migration_flag, False):
+            self.settings_manager.save_setting(migration_flag, True)
 
-            # Also merge and save all data to root folder
-            self._merge_and_save_multi_fileid_data()
+    def _confirm_reset_settings(self):
+        """Prompt user before resetting settings to defaults"""
+        reply = QMessageBox.question(
+            self,
+            "Reset Settings",
+            "Reset all GeoEvent settings to defaults? This will clear saved preferences like theme and last folder.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            self.settings_manager.reset_to_defaults()
+            self.load_settings()
+            QMessageBox.information(
+                self,
+                "Settings Reset",
+                "Settings were reset to defaults."
+            )
 
     def auto_save_all_data_on_close(self):
         """Auto-save all data when closing app"""
@@ -570,12 +585,6 @@ class MainWindow(QMainWindow):
                 logging.info(f"Loaded lane fixes from file for {fileid_folder.fileid}: {len(fileid_lane_fixes)} fixes")
             all_lane_fixes.extend(fileid_lane_fixes)
 
-        # Save merged events to root folder if there are any events
-        all_events = []
-        for fileid_folder in self.fileid_manager.fileid_list:
-            fileid_events = self._load_events_for_fileid(fileid_folder)
-            all_events.extend(fileid_events)
-
         if all_events:
             merged_driveevt_path = os.path.join(root_folder, "merged.driveevt")
             success = self._save_merged_events(all_events, merged_driveevt_path)
@@ -711,7 +720,7 @@ class MainWindow(QMainWindow):
         """Show about dialog"""
         QMessageBox.about(
             self, "About GeoEvent",
-            "GeoEvent v2.0.19\n\n"
+            "GeoEvent v2.0.20\n\n"
             "PyQt6-based road survey event coding application\n"
             "with GPS-synchronized timeline.\n\n"
             "© 2025 Pavement Team"
@@ -874,7 +883,7 @@ class MainWindow(QMainWindow):
         """Show about dialog"""
         QMessageBox.about(
             self, "About GeoEvent",
-            "GeoEvent v2.0.19\n\n"
+            "GeoEvent v2.0.20\n\n"
             "Road Survey Event Coding Application\n\n"
             "Built with PyQt6 and Python\n\n"
             "© 2025 Pavement Team"

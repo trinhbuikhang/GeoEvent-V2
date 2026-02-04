@@ -686,6 +686,12 @@ class TimelineWidget(QWidget):
         else:
             interval = max(3600, round(seconds_per_grid / 3600) * 3600)
 
+        # Avoid overlapping labels by tracking the last drawn label edge
+        fm = painter.fontMetrics()
+        min_label_spacing = fm.horizontalAdvance("00:00:00") + 12  # add padding
+        last_label_right = -float("inf")
+        label_y = max(12, rect.top() - 8)  # draw in the top margin, above events
+
         current_time = self.view_start_time.replace(second=0, microsecond=0)
         if interval >= 60:
             # Align to minute boundaries
@@ -700,9 +706,13 @@ class TimelineWidget(QWidget):
 
                 # Draw time label
                 time_str = current_time.strftime("%H:%M:%S")
-                painter.setPen(QColor('#ECF0F1'))
-                painter.drawText(int(x) + 2, rect.top() + 15, time_str)
-                painter.setPen(QColor('#34495E'))
+                label_x = int(x) + 2
+                label_width = fm.horizontalAdvance(time_str)
+                if label_x - last_label_right >= min_label_spacing:
+                    painter.setPen(QColor('#ECF0F1'))
+                    painter.drawText(label_x, label_y, time_str)
+                    painter.setPen(QColor('#34495E'))
+                    last_label_right = label_x + label_width
 
             current_time += timedelta(seconds=interval)
 
