@@ -5,7 +5,7 @@ Handles loading and parsing of all data types for a FileID
 
 import os
 import logging
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Callable, TypeVar
 from datetime import datetime, timezone
 
 from ..models.event_model import Event
@@ -13,6 +13,9 @@ from ..models.gps_model import GPSData
 from ..models.lane_model import LaneManager
 from ..utils.file_parser import parse_driveevt, parse_driveiri, enrich_events_with_gps, save_driveevt
 from ..utils.image_utils import extract_image_metadata, validate_filename
+
+# Type variable for generic file loading
+T = TypeVar('T')
 
 class DataLoader:
     """
@@ -27,6 +30,49 @@ class DataLoader:
     
     def __init__(self):
         self.lane_manager = LaneManager()
+    
+    def _load_csv_file(
+        self, 
+        file_path: str,
+        parser_func: Callable[[str], T],
+        empty_value: T,
+        create_empty_func: Optional[Callable[[str], None]] = None,
+        file_type: str = "file"
+    ) -> T:
+        """
+        Generic CSV file loader with error handling - eliminates code duplication
+        
+        Args:
+            file_path: Path to CSV file to load
+            parser_func: Function to parse the file (e.g., parse_driveevt)
+            empty_value: Value to return if file doesn't exist
+            create_empty_func: Optional function to create empty file
+            file_type: Description of file type for logging
+            
+        Returns:
+            Parsed data or empty_value if file doesn't exist
+            
+        Raises:
+            Exception: If parsing fails
+        """
+        logging.debug(f"Checking for {file_type}: {file_path}")
+        
+        if os.path.exists(file_path):
+            logging.debug(f"Found {file_type}, parsing...")
+            try:
+                data = parser_func(file_path)
+                logging.debug(f"Successfully parsed {file_type}")
+                return data
+            except Exception as e:
+                logging.error(f"Error parsing {file_type} {file_path}: {str(e)}", exc_info=True)
+                raise
+        else:
+            if create_empty_func:
+                logging.info(f"{file_type} not found, creating empty file: {file_path}")
+                create_empty_func(file_path)
+            else:
+                logging.info(f"{file_type} not found, using empty data: {file_path}")
+            return empty_value
     
     def load_fileid_data(self, fileid_folder) -> Dict[str, Any]:
         """
@@ -118,40 +164,24 @@ class DataLoader:
     def _load_event_data(self, fileid_folder) -> List[Event]:
         """Load event data from .driveevt file"""
         driveevt_path = os.path.join(fileid_folder.path, f"{fileid_folder.fileid}.driveevt")
-        logging.debug(f"Checking for driveevt file: {driveevt_path}")
-        
-        if os.path.exists(driveevt_path):
-            logging.debug(f"Found driveevt file, parsing...")
-            try:
-                events = parse_driveevt(driveevt_path)
-                logging.debug(f"Successfully parsed {len(events)} events")
-                return events
-            except Exception as e:
-                logging.error(f"Error parsing driveevt file {driveevt_path}: {str(e)}", exc_info=True)
-                raise
-        else:
-            # Create empty driveevt file
-            logging.info(f"Driveevt file not found, creating empty file: {driveevt_path}")
-            self._create_empty_driveevt(driveevt_path)
-            return []
+        return self._load_csv_file(
+            file_path=driveevt_path,
+            parser_func=parse_driveevt,
+            empty_value=[],
+            create_empty_func=self._create_empty_driveevt,
+            file_type="driveevt file"
+        )
     
     def _load_gps_data(self, fileid_folder) -> Optional[GPSData]:
         """Load GPS data from .driveiri file"""
         driveiri_path = os.path.join(fileid_folder.path, f"{fileid_folder.fileid}.driveiri")
-        logging.debug(f"Checking for driveiri file: {driveiri_path}")
-        
-        if os.path.exists(driveiri_path):
-            logging.debug(f"Found driveiri file, parsing...")
-            try:
-                gps_data = parse_driveiri(driveiri_path)
-                logging.debug("Successfully parsed GPS data")
-                return gps_data
-            except Exception as e:
-                logging.error(f"Error parsing driveiri file {driveiri_path}: {str(e)}", exc_info=True)
-                raise
-        else:
-            logging.info(f"Driveiri file not found, using empty GPSData: {driveiri_path}")
-            return GPSData()
+        return self._load_csv_file(
+            file_path=driveiri_path,
+            parser_func=parse_driveiri,
+            empty_value=GPSData(),
+            create_empty_func=None,
+            file_type="driveiri file"
+        )
     
     def _load_image_paths(self, fileid_folder) -> List[str]:
         """Load and sort image paths from Cam1 folder, filtering only valid survey images"""
@@ -235,7 +265,7 @@ class DataLoader:
                     metadata['last_image_coords'] = (last_metadata['latitude'], last_metadata['longitude'])
                     
             except Exception as e:
-                print(f"Warning: Could not extract image metadata: {e}")
+                logging.warning(f"Could not extract image metadata: {e}", exc_info=True)
         
         return metadata
     
@@ -245,9 +275,9 @@ class DataLoader:
         try:
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(header + '\n')
-            print(f"Created empty driveevt file: {path}")
+            logging.info(f"Created empty driveevt file: {path}")
         except Exception as e:
-            print(f"Warning: Could not create empty driveevt file: {e}")
+            logging.warning(f"Could not create empty driveevt file: {e}", exc_info=True)
     
     def preload_images_metadata(self, image_paths: List[str], limit: int = 50) -> Dict[str, Dict]:
         """

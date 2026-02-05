@@ -102,12 +102,30 @@ class Event:
         if not chainage_validation.is_valid:
             logging.warning(f"Invalid end chainage: {chainage_validation.error_message}")
         
+        # Parse and validate timestamps
         start_dt = datetime.fromisoformat(data['start_time'])
         if start_dt.tzinfo is None:
             start_dt = start_dt.replace(tzinfo=timezone.utc)
+        
+        # Validate start timestamp
+        timestamp_validation = InputValidator.validate_timestamp(start_dt)
+        if not timestamp_validation.is_valid:
+            logging.warning(f"Invalid start timestamp: {timestamp_validation.error_message}")
+        
         end_dt = datetime.fromisoformat(data['end_time'])
         if end_dt.tzinfo is None:
             end_dt = end_dt.replace(tzinfo=timezone.utc)
+        
+        # Validate end timestamp
+        timestamp_validation = InputValidator.validate_timestamp(end_dt)
+        if not timestamp_validation.is_valid:
+            logging.warning(f"Invalid end timestamp: {timestamp_validation.error_message}")
+        
+        # Validate time range (end must be after start)
+        if end_dt < start_dt:
+            logging.warning(f"End time {end_dt} is before start time {start_dt}")
+            # Swap if needed
+            start_dt, end_dt = end_dt, start_dt
         
         return cls(
             event_id=data['event_id'],

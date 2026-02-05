@@ -5,6 +5,7 @@ Handles application settings persistence
 
 import os
 import json
+import logging
 from typing import Dict, Any
 
 class SettingsManager:
@@ -34,12 +35,12 @@ class SettingsManager:
                     merged.update(loaded)
                     return merged
             except (json.JSONDecodeError, IOError, ValueError) as e:
-                print(f"Error loading settings: {e}. Using defaults.")
+                logging.error(f"Error loading settings: {e}. Using defaults.", exc_info=True)
                 # Backup corrupted file
                 backup_path = self.settings_file + ".backup"
                 try:
                     os.rename(self.settings_file, backup_path)
-                    print(f"Corrupted settings backed up to {backup_path}")
+                    logging.info(f"Corrupted settings backed up to {backup_path}")
                 except:
                     pass
                 return self._get_default_settings()
@@ -82,7 +83,7 @@ class SettingsManager:
             with open(self.settings_file, 'w', encoding='utf-8') as f:
                 json.dump(self._settings, f, indent=2)
         except IOError as e:
-            print(f"Error saving settings: {e}")
+            logging.error(f"Error saving settings: {e}", exc_info=True)
 
     def load_settings(self) -> Dict[str, Any]:
         """Get current settings"""

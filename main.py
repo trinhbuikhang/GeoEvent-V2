@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPalette, QColor, QIcon
 from app.main_window import MainWindow
+from app.logging_config import setup_logging as setup_centralized_logging
 
 def get_resource_path(relative_path: str) -> str:
     """Return absolute path to resource, works for dev and PyInstaller"""
@@ -20,22 +21,22 @@ def get_resource_path(relative_path: str) -> str:
 
 
 def setup_logging():
-    """Setup logging configuration"""
-    # Configure logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(sys.stdout)  # Log to console/terminal
-        ]
+    """Setup centralized logging configuration with rotation"""
+    # Use centralized logging configuration
+    logger = setup_centralized_logging(
+        log_dir="logs",
+        level=logging.DEBUG,  # Root level for file
+        console_level=logging.INFO,  # Console shows INFO and above
+        file_level=logging.DEBUG,  # File logs everything
+        error_level=logging.ERROR  # Error file logs errors only
     )
     
-    # Set specific loggers to DEBUG level for more detailed output
-    logging.getLogger('app.utils.data_loader').setLevel(logging.DEBUG)
-    logging.getLogger('app.ui.photo_preview_tab').setLevel(logging.DEBUG)
-    logging.getLogger('app.ui.timeline_widget').setLevel(logging.DEBUG)
+    # Set specific module loggers if needed
+    # Most verbose modules can be adjusted
+    logging.getLogger('app.utils.image_utils').setLevel(logging.WARNING)  # Reduce noise from coordinate parsing
+    logging.getLogger('PIL').setLevel(logging.WARNING)  # Suppress PIL debug messages
     
-    logging.info("GeoEvent application starting...")
+    return logger
 
 def main():
     """Main application entry point"""
@@ -45,7 +46,7 @@ def main():
     # Create application
     app = QApplication(sys.argv)
     app.setApplicationName("GeoEvent")
-    app.setApplicationVersion("2.0.21")
+    app.setApplicationVersion("2.0.22")
     app.setOrganizationName("Pavement Team")
     app.setStyle("Fusion")  # App-wide Fusion style
     icon_path = get_resource_path(os.path.join("app", "ui", "icon", "Event.ico"))

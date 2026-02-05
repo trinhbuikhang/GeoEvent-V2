@@ -179,7 +179,7 @@ def extract_image_metadata(image_path: str) -> Dict:
                 pass
 
     except Exception as e:
-        print(f"Error extracting metadata from {filename}: {e}")
+        logging.error(f"Error extracting metadata from {filename}: {e}", exc_info=True)
         return metadata  # Return partial metadata
 
     return metadata
@@ -196,27 +196,27 @@ def extract_coordinates(filename: str) -> Optional[Tuple[float, float]]:
         filename_no_ext = os.path.splitext(filename)[0]
         parts = filename_no_ext.split('-')
         if len(parts) < 9:  # Need at least 9 parts for coordinates
-            print(f"Filename {filename} has only {len(parts)} parts, expected >=9")
+            logging.debug(f"Filename {filename} has only {len(parts)} parts, expected >=9")
             return None
             
         lat_str, lon_str = parts[8], parts[9]
         if not lat_str or not lon_str or lat_str == '-' or lon_str == '-':
-            print(f"Invalid lat/lon strings: {lat_str}, {lon_str} in {filename}")
+            logging.debug(f"Invalid lat/lon strings: {lat_str}, {lon_str} in {filename}")
             return None
             
         # Check if direction is present and valid
         if len(lat_str) < 2 or lat_str[-1].upper() not in 'NS':
-            print(f"Invalid lat direction in {lat_str} for {filename}")
+            logging.debug(f"Invalid lat direction in {lat_str} for {filename}")
             return None
         if len(lon_str) < 2 or lon_str[-1].upper() not in 'EW':
-            print(f"Invalid lon direction in {lon_str} for {filename}")
+            logging.debug(f"Invalid lon direction in {lon_str} for {filename}")
             return None
             
         # Parse DDMM.MMMMM format
         lat_coord = lat_str[:-1]  # Remove direction
         lat_dir = lat_str[-1].upper()
         if len(lat_coord) < 4:  # At least DDMM
-            print(f"Lat coord too short: {lat_coord} for {filename}")
+            logging.debug(f"Lat coord too short: {lat_coord} for {filename}")
             return None
         lat_deg = int(lat_coord[:2])
         lat_min = float(lat_coord[2:])
@@ -225,7 +225,7 @@ def extract_coordinates(filename: str) -> Optional[Tuple[float, float]]:
         lon_coord = lon_str[:-1]  # Remove direction
         lon_dir = lon_str[-1].upper()
         if len(lon_coord) < 5:  # At least DDDMM
-            print(f"Lon coord too short: {lon_coord} for {filename}")
+            logging.debug(f"Lon coord too short: {lon_coord} for {filename}")
             return None
         lon_deg = int(lon_coord[:3])
         lon_min = float(lon_coord[3:])
@@ -238,12 +238,12 @@ def extract_coordinates(filename: str) -> Optional[Tuple[float, float]]:
             
         # Validate coordinates are in reasonable ranges
         if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
-            print(f"Coordinates out of range: {lat}, {lon} for {filename}")
+            logging.warning(f"Coordinates out of range: {lat}, {lon} for {filename}")
             return None
             
         return lat, lon
     except (ValueError, IndexError, TypeError) as e:
-        print(f"Error parsing coordinates in {filename}: {e}")
+        logging.error(f"Error parsing coordinates in {filename}: {e}", exc_info=True)
         return None
 
 def ddmm_to_decimal(ddmm: float, direction: str) -> float:

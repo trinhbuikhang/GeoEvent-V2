@@ -6,6 +6,7 @@ All application constants and settings in one place
 from dataclasses import dataclass, field
 from typing import Dict, Any
 import json
+import logging
 import os
 
 
@@ -154,7 +155,7 @@ class AppConfig:
             return config
             
         except Exception as e:
-            print(f"Error loading config from {filepath}: {e}")
+            logging.error(f"Error loading config from {filepath}: {e}", exc_info=True)
             return cls()  # Return defaults on error
     
     def save_to_file(self, filepath: str) -> bool:
@@ -202,7 +203,7 @@ class AppConfig:
             return True
             
         except Exception as e:
-            print(f"Error saving config to {filepath}: {e}")
+            logging.error(f"Error saving config to {filepath}: {e}", exc_info=True)
             return False
 
 

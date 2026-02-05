@@ -73,6 +73,12 @@ class LaneManager:
         All lane types create lane_fix entries for consistency
         Returns True if successful, False if overlap detected or timestamp invalid
         """
+        # Validate timestamp format first
+        timestamp_validation = InputValidator.validate_timestamp(timestamp)
+        if not timestamp_validation.is_valid:
+            logging.error(f"Invalid timestamp for lane assignment: {timestamp_validation.error_message}")
+            return False
+        
         # Validate lane code
         validation = InputValidator.validate_lane_code(lane_code)
         if not validation.is_valid:

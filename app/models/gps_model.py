@@ -1,10 +1,13 @@
 """
 GPS data model for GeoEvent application
+Optimized with binary search for O(log n) interpolation
 """
 
+import bisect
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 @dataclass
 class GPSPoint:
@@ -47,50 +50,86 @@ class GPSPoint:
 class GPSData:
     """
     Collection of GPS data points with caching and querying
+    Optimized with binary search for O(log n) interpolation performance
     """
 
     def __init__(self):
         self.points: List[GPSPoint] = []
         self._sorted = False
+        self._timestamp_index: List[datetime] = []  # Cached timestamp index for binary search
 
     def add_point(self, point: GPSPoint):
         """Add a GPS point to the collection"""
         self.points.append(point)
         self._sorted = False
+        self._timestamp_index = []  # Invalidate cache
 
     def sort_by_time(self):
-        """Sort points by timestamp"""
+        """Sort points by timestamp and build index for binary search"""
         if not self._sorted:
             self.points.sort(key=lambda p: p.timestamp)
             self._sorted = True
+            # Build timestamp index for O(log n) binary search
+            self._timestamp_index = [p.timestamp for p in self.points]
+            logging.debug(f"GPS data sorted: {len(self.points)} points indexed")
 
     def get_points_in_range(self, start_time: datetime, end_time: datetime) -> List[GPSPoint]:
         """Get GPS points within time range"""
         self.sort_by_time()
         return [p for p in self.points if start_time <= p.timestamp <= end_time]
 
-    def interpolate_position(self, timestamp: datetime) -> Optional[tuple[float, float]]:
+    def _find_surrounding_points(self, timestamp: datetime) -> Tuple[Optional[GPSPoint], Optional[GPSPoint]]:
         """
-        Interpolate latitude/longitude for a given timestamp
-        Returns (lat, lon) or None if cannot interpolate
+        Find GPS points surrounding a timestamp using binary search - O(log n)
+        
+        Args:
+            timestamp: Target timestamp to find surrounding points for
+            
+        Returns:
+            Tuple of (before_point, after_point) where:
+            - before_point: Latest point at or before timestamp (or None)
+            - after_point: Earliest point after timestamp (or None)
+            
+        Performance: O(log n) using binary search instead of O(n) linear search
         """
         self.sort_by_time()
-
+        
         if not self.points:
-            return None
-
-        # Find points before and after timestamp
+            return None, None
+        
+        # Binary search for insertion point - O(log n)
+        idx = bisect.bisect_left(self._timestamp_index, timestamp)
+        
+        # Determine before and after points
         before = None
         after = None
+        
+        if idx > 0:
+            # There's a point at or before timestamp
+            # Check if exact match or need previous point
+            if idx < len(self.points) and self._timestamp_index[idx] == timestamp:
+                before = self.points[idx]
+                after = self.points[idx + 1] if idx + 1 < len(self.points) else None
+            else:
+                before = self.points[idx - 1]
+                after = self.points[idx] if idx < len(self.points) else None
+        else:
+            # timestamp is before all points
+            after = self.points[0] if self.points else None
+        
+        return before, after
 
-        for point in self.points:
-            if point.timestamp <= timestamp:
-                before = point
-            elif point.timestamp > timestamp:
-                after = point
-                break
+    def interpolate_position(self, timestamp: datetime) -> Optional[tuple[float, float]]:
+        """
+        Interpolate latitude/longitude for a given timestamp using binary search
+        Returns (lat, lon) or None if cannot interpolate
+        
+        Performance: O(log n) with binary search (was O(n) with linear search)
+        """
+        # Use binary search to find surrounding points - O(log n)
+        before, after = self._find_surrounding_points(timestamp)
 
-        if before and after:
+        if before and after and before.timestamp != after.timestamp:
             # Interpolate between two points
             time_diff = (after.timestamp - before.timestamp).total_seconds()
             target_diff = (timestamp - before.timestamp).total_seconds()
@@ -113,26 +152,15 @@ class GPSData:
 
     def interpolate_chainage(self, timestamp: datetime) -> Optional[float]:
         """
-        Interpolate chainage for a given timestamp
+        Interpolate chainage for a given timestamp using binary search
         Returns chainage or None if cannot interpolate
+        
+        Performance: O(log n) with binary search (was O(n) with linear search)
         """
-        self.sort_by_time()
+        # Use binary search to find surrounding points - O(log n)
+        before, after = self._find_surrounding_points(timestamp)
 
-        if not self.points:
-            return None
-
-        # Find points before and after timestamp
-        before = None
-        after = None
-
-        for point in self.points:
-            if point.timestamp <= timestamp:
-                before = point
-            elif point.timestamp > timestamp:
-                after = point
-                break
-
-        if before and after:
+        if before and after and before.timestamp != after.timestamp:
             # Interpolate between two points
             time_diff = (after.timestamp - before.timestamp).total_seconds()
             target_diff = (timestamp - before.timestamp).total_seconds()

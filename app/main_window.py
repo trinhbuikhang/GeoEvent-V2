@@ -687,7 +687,7 @@ class MainWindow(QMainWindow):
             QApplication.setPalette(palette)
 
         except FileNotFoundError:
-            print(f"Theme file not found: {theme_path}, using default theme")
+            logging.warning(f"Theme file not found: {theme_path}, using default theme")
             # Use default theme or no stylesheet
             self.setStyleSheet("")
             # Reset to default palette

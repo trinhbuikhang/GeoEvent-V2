@@ -7,6 +7,7 @@ import os
 import re
 import json
 import csv
+import logging
 from datetime import datetime
 from typing import List, Optional
 from dataclasses import dataclass
@@ -82,7 +83,7 @@ class FileIDManager:
                 self._save_state()
 
         except PermissionError:
-            print(f"Permission denied accessing {parent_path}")
+            logging.error(f"Permission denied accessing {parent_path}")
 
         return self.fileid_list
 
@@ -151,7 +152,7 @@ class FileIDManager:
             )
 
         except Exception as e:
-            print(f"Error analyzing {path}: {e}")
+            logging.error(f"Error analyzing {path}: {e}", exc_info=True)
             return None
 
     def _create_empty_driveevt(self, path: str) -> bool:
@@ -168,7 +169,7 @@ class FileIDManager:
             return True
 
         except Exception as e:
-            print(f"Failed to create empty driveevt {path}: {e}")
+            logging.error(f"Failed to create empty driveevt {path}: {e}", exc_info=True)
             if os.path.exists(temp_path):
                 os.remove(temp_path)
             return False
@@ -187,7 +188,7 @@ class FileIDManager:
             return True
 
         except Exception as e:
-            print(f"Failed to create empty lane fix file {path}: {e}")
+            logging.error(f"Failed to create empty lane fix file {path}: {e}", exc_info=True)
             if os.path.exists(temp_path):
                 os.remove(temp_path)
             return False
@@ -234,7 +235,7 @@ class FileIDManager:
                     self.set_current_fileid(current_fileid)
 
         except Exception as e:
-            print(f"Error loading state: {e}")
+            logging.error(f"Error loading state: {e}", exc_info=True)
 
     def _save_state(self):
         """Save processing state to file"""
@@ -250,4 +251,4 @@ class FileIDManager:
                 json.dump(state, f, indent=2)
 
         except Exception as e:
-            print(f"Error saving state: {e}")
+            logging.error(f"Error saving state: {e}", exc_info=True)
