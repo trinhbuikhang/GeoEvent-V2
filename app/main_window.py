@@ -22,6 +22,8 @@ from .utils.user_guide import show_user_guide
 from .core.memory_manager import MemoryManager
 from .core.autosave_manager import AutoSaveManager
 from .ui.settings_dialog import SettingsDialog
+from .ui.shortcuts_dialog import ShortcutsDialog
+from .utils.metrics_tracker import MetricsTracker
 
 class BackgroundSaveWorker(QThread):
     """
@@ -62,12 +64,16 @@ class MainWindow(QMainWindow):
         self.fileid_manager = FileIDManager()
         self.memory_manager = MemoryManager()
         self.autosave_manager = AutoSaveManager()
+        self.metrics_tracker = MetricsTracker()
         self.root_folder_path = None  # Parent folder containing FileID folders
 
         # Ensure settings file is initialized without clearing user preferences
         self._ensure_settings_migration()
 
         self.photo_tab = None
+        
+        # Start metrics session
+        self.metrics_tracker.start_session()
 
         self.setup_ui()
         self.load_settings()
@@ -214,6 +220,12 @@ class MainWindow(QMainWindow):
 
         # Help menu
         help_menu = menubar.addMenu("Help")
+        
+        shortcuts_action = QAction("Keyboard Shortcuts...", self)
+        shortcuts_action.setShortcut("F1")
+        shortcuts_action.triggered.connect(self.show_shortcuts_dialog)
+        help_menu.addAction(shortcuts_action)
+        
         user_guide_action = QAction("User Guide", self)
         user_guide_action.triggered.connect(self.show_user_guide)
         help_menu.addAction(user_guide_action)
@@ -726,6 +738,9 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         """Handle application close"""
+        # End metrics session
+        self.metrics_tracker.end_session()
+        
         # Show saving dialog
         save_dialog = QMessageBox(self)
         save_dialog.setWindowTitle("Saving Data")
@@ -862,6 +877,11 @@ class MainWindow(QMainWindow):
     def show_user_guide(self):
         """Show user guide dialog"""
         show_user_guide(self)
+    
+    def show_shortcuts_dialog(self):
+        """Show keyboard shortcuts dialog"""
+        dialog = ShortcutsDialog(self)
+        dialog.exec()
 
     def show_settings_dialog(self):
         """Show settings dialog"""

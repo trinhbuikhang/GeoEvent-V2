@@ -1,0 +1,44 @@
+{
+  "sessions": [
+    {
+      "session_id": "session_20260205_155736",
+      "start_time": "2026-02-05T15:57:36.555078",
+      "end_time": "2026-02-05T15:57:36.555086",
+      "images_viewed": 0,
+      "next_clicks": 0,
+      "prev_clicks": 0,
+      "slider_changes": 0,
+      "timeline_clicks": 0,
+      "lane_assignments": 0,
+      "lane_changes": 0,
+      "events_edited": 0,
+      "events_created": 0,
+      "fileid_loads": 2,
+      "fileid_saves": 0,
+      "autoplay_sessions": 0,
+      "autoplay_duration": "0:00:00",
+      "avg_image_load_time": 0.0,
+      "avg_fileid_load_time": 2.75
+    },
+    {
+      "session_id": "session_20260205_155736",
+      "start_time": "2026-02-05T15:57:36.564634",
+      "end_time": "2026-02-05T15:57:36.564641",
+      "images_viewed": 0,
+      "next_clicks": 0,
+      "prev_clicks": 0,
+      "slider_changes": 0,
+      "timeline_clicks": 0,
+      "lane_assignments": 0,
+      "lane_changes": 0,
+      "events_edited": 0,
+      "events_created": 0,
+      "fileid_loads": 0,
+      "fileid_saves": 0,
+      "autoplay_sessions": 0,
+      "autoplay_duration": "0:00:00",
+      "avg_image_load_time": 0.04,
+      "avg_fileid_load_time": 0.0
+    }
+  ]
+}

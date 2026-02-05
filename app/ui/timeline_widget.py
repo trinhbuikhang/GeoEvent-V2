@@ -1288,6 +1288,11 @@ class TimelineWidget(QWidget):
                 pixels_per_second = self.calculate_pixels_per_second(timeline_rect)
                 click_time = self.pixel_to_time(event.position().x(), pixels_per_second, timeline_rect.left())
                 gps_coords = (None, None)  # TODO: Get GPS coords from GPS data
+                
+                # Track metrics - timeline click
+                if hasattr(self.photo_tab, 'main_window') and hasattr(self.photo_tab.main_window, 'metrics_tracker'):
+                    self.photo_tab.main_window.metrics_tracker.track_timeline_click()
+                
                 self.position_clicked.emit(click_time, gps_coords)
                 return
 
@@ -1425,6 +1430,11 @@ class TimelineWidget(QWidget):
         edited_event = EventEditor.edit_event(event, self)
         if edited_event:
             logging.info(f"TimelineWidget: User saved changes to event '{edited_event.event_name}' (ID: {edited_event.event_id})")
+            
+            # Track metrics - event edited
+            if hasattr(self.photo_tab, 'main_window') and hasattr(self.photo_tab.main_window, 'metrics_tracker'):
+                self.photo_tab.main_window.metrics_tracker.track_event_edit()
+            
             # Emit modification signal
             changes = {
                 'event_name': edited_event.event_name,

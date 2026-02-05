@@ -10,7 +10,7 @@ from typing import List, Optional
 import csv
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QSlider, QFrame, QScrollArea, QGroupBox, QButtonGroup, QSplitter, QSizePolicy, QMessageBox, QComboBox, QDialog, QRadioButton, QDialogButtonBox
+    QSlider, QFrame, QScrollArea, QGroupBox, QButtonGroup, QSplitter, QSizePolicy, QMessageBox, QComboBox, QDialog, QRadioButton, QDialogButtonBox, QProgressDialog
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize, QMutex, QMutexLocker
 from PyQt6.QtGui import QPixmap, QImage, QPainter, QPen, QBrush, QShortcut, QKeySequence
@@ -213,16 +213,19 @@ class PhotoPreviewTab(QWidget):
         self.prev_btn = QPushButton("◀ Previous")
         self.prev_btn.clicked.connect(self.prev_image)
         self.prev_btn.setMinimumHeight(40)
+        self.prev_btn.setToolTip("Navigate to previous image (Left Arrow / A)")
         parent_layout.addWidget(self.prev_btn)
 
         self.play_btn = QPushButton("▶ Play")
         self.play_btn.clicked.connect(self.toggle_playback)
         self.play_btn.setMinimumHeight(40)
+        self.play_btn.setToolTip("Auto-play images at selected speed (Space)")
         parent_layout.addWidget(self.play_btn)
 
         self.next_btn = QPushButton("Next ▶")
         self.next_btn.clicked.connect(self.next_image)
         self.next_btn.setMinimumHeight(40)
+        self.next_btn.setToolTip("Navigate to next image (Right Arrow / D)")
         parent_layout.addWidget(self.next_btn)
 
         self.position_label = QLabel("0 / 0")
@@ -238,8 +241,11 @@ class PhotoPreviewTab(QWidget):
 
         self.speed_group = QButtonGroup()
         self.slow_radio = QRadioButton("Slow")
+        self.slow_radio.setToolTip("Play at 0.5x speed (500ms interval)")
         self.normal_radio = QRadioButton("Normal")
+        self.normal_radio.setToolTip("Play at normal speed (100ms interval)")
         self.fast_radio = QRadioButton("Fast")
+        self.fast_radio.setToolTip("Play at 2x speed (50ms interval)")
 
         self.speed_group.addButton(self.slow_radio)
         self.speed_group.addButton(self.normal_radio)
@@ -406,6 +412,7 @@ class PhotoPreviewTab(QWidget):
         self.sk_btn.clicked.connect(self.assign_sk)
         self.sk_btn.setMinimumHeight(35)
         self.sk_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.sk_btn.setToolTip("Assign Shoulder lane (Hotkey: K)")
         self.lane_button_map['SK'] = self.sk_btn  # Store button reference
         control_row.addWidget(self.sk_btn)
 
@@ -732,19 +739,37 @@ class PhotoPreviewTab(QWidget):
         self.sync_to_timeline_position(timestamp, (None, None))
 
     def load_fileid(self, fileid_folder):
-        """Load data for a specific FileID"""
+        """Load data for a specific FileID  with progress dialog"""
         # logging.info(f"PhotoPreviewTab: Loading FileID {fileid_folder.fileid} from {fileid_folder.path}")
+        
+        # Create progress dialog
+        progress = QProgressDialog(
+            f"Loading FileID {fileid_folder.fileid}...",
+            "Cancel",
+            0, 100,
+            self
+        )
+        progress.setWindowTitle("Loading FileID Data")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(500)  # Show after 500ms if not complete
+        progress.setValue(0)
         
         try:
             # Save current events and lane_fixes to cache before switching FileID
+            progress.setLabelText("Saving current FileID data...")
+            progress.setValue(5)
             if self.current_fileid:
                 self.events_per_fileid[self.current_fileid.fileid] = self.events
                 self.lane_fixes_per_fileid[self.current_fileid.fileid] = self.lane_manager.lane_fixes if self.lane_manager else []
             
             # Use DataLoader to load all data
+            progress.setLabelText("Loading events and GPS data...")
+            progress.setValue(15)
             data = self.data_loader.load_fileid_data(fileid_folder)
 
             # Store loaded data
+            progress.setLabelText("Processing loaded data...")
+            progress.setValue(40)
             # Use cached events if available (preserves modifications), otherwise use loaded events
             self.events = self.events_per_fileid.get(fileid_folder.fileid, data['events'])
             self.gps_data = data['gps_data']
@@ -756,6 +781,8 @@ class PhotoPreviewTab(QWidget):
             # self._minimap_initialized = False
             
             # Always use a fresh lane manager from data
+            progress.setLabelText("Setting up lane manager...")
+            progress.setValue(55)
             self.lane_manager = data['lane_manager']
             plate = data['metadata'].get('plate', 'Unknown')
             self.lane_manager.plate = plate
@@ -766,6 +793,8 @@ class PhotoPreviewTab(QWidget):
             self.current_fileid = fileid_folder
             
             # Check for lane fixes validation errors and notify user immediately
+            progress.setLabelText("Validating lane data...")
+            progress.setValue(70)
             validation_errors = self.lane_manager.validate_lane_fixes_time_bounds()
             if validation_errors:
                 error_msg = f"Found {len(validation_errors)} lane data validation errors for FileID {fileid_folder.fileid}:\n\n"
@@ -809,11 +838,15 @@ class PhotoPreviewTab(QWidget):
                     pass
             
             # Cache the current lane_fixes for this FileID
+            progress.setLabelText("Caching lane data...")
+            progress.setValue(85)
             self.lane_fixes_per_fileid[fileid_folder.fileid] = self.lane_manager.lane_fixes
             
             # logging.info(f"PhotoPreviewTab: Stored {len(self.events)} events, {len(self.image_paths)} images")
 
             # Load first image if available BEFORE setting timeline events
+            progress.setLabelText("Loading first image...")
+            progress.setValue(92)
             if self.image_paths:
                 # logging.info(f"Loading first image: {os.path.basename(self.image_paths[0])}")
                 self.navigate_to_image(0)
@@ -856,8 +889,12 @@ class PhotoPreviewTab(QWidget):
                 button.style().polish(button)
                 
             self.update_lane_display()
+            
+            # Complete progress
+            progress.setValue(100)
 
         except Exception as e:
+            progress.close()
             logging.error(f"PhotoPreviewTab: Failed to load FileID {fileid_folder.fileid}: {str(e)}", exc_info=True)
             raise Exception(f"Failed to load FileID data: {str(e)}")
 
@@ -1013,6 +1050,10 @@ class PhotoPreviewTab(QWidget):
             self.load_current_image()
             self.update_navigation_state()
             self.slider.setValue(index)
+
+            # Track metrics - image viewed
+            if hasattr(self.main_window, 'metrics_tracker'):
+                self.main_window.metrics_tracker.track_image_viewed()
 
             # Emit signal
             self.image_changed.emit(index, self.current_metadata)
@@ -1178,6 +1219,10 @@ class PhotoPreviewTab(QWidget):
             logging.warning("PhotoPreviewTab: No images loaded for prev_image")
             return
         
+        # Track metrics
+        if hasattr(self.main_window, 'metrics_tracker'):
+            self.main_window.metrics_tracker.track_prev_click()
+        
         # Navigate to previous image if not at the beginning
         if self.current_index > 0:
             self.navigate_to_image(self.current_index - 1)
@@ -1189,6 +1234,11 @@ class PhotoPreviewTab(QWidget):
         if not hasattr(self, 'image_paths') or not self.image_paths:
             logging.warning("PhotoPreviewTab: No images loaded for next_image")
             return
+        
+        # Track metrics
+        if hasattr(self.main_window, 'metrics_tracker'):
+            self.main_window.metrics_tracker.track_next_click()
+        
         if self.current_index < len(self.image_paths) - 1:
             self.navigate_to_image(self.current_index + 1)
         else:
@@ -1199,6 +1249,10 @@ class PhotoPreviewTab(QWidget):
     def slider_changed(self, value):
         """Handle slider value change"""
         if value != self.current_index:
+            # Track metrics
+            if hasattr(self.main_window, 'metrics_tracker'):
+                self.main_window.metrics_tracker.track_slider_change()
+            
             self.navigate_to_image(value)
 
     def toggle_playback(self):
@@ -1209,12 +1263,20 @@ class PhotoPreviewTab(QWidget):
             self.is_playing = False
             self.timeline.slideshow_active = False
             # No need to restore zoom - we kept it unchanged
+            
+            # Track metrics - stop autoplay
+            if hasattr(self.main_window, 'metrics_tracker'):
+                self.main_window.metrics_tracker.stop_autoplay()
         else:
             self.playback_timer.start(self.playback_speed)
             self.play_btn.setText("⏸ Pause")
             self.is_playing = True
             self.timeline.slideshow_active = True
             # Keep current zoom level during slideshow - no need to change it
+            
+            # Track metrics - start autoplay
+            if hasattr(self.main_window, 'metrics_tracker'):
+                self.main_window.metrics_tracker.start_autoplay()
 
     def assign_lane(self, lane_code: str) -> bool:
         """Assign lane at current position with smart change logic"""
@@ -1237,6 +1299,10 @@ class PhotoPreviewTab(QWidget):
         if current_lane_at_time and current_lane_at_time != stored_lane_code:
             # Dù là loại lane nào, đều bật smart change dialog
             success = self._perform_smart_lane_change(stored_lane_code, timestamp)
+            
+            # Track metrics - lane change
+            if success and hasattr(self.main_window, 'metrics_tracker'):
+                self.main_window.metrics_tracker.track_lane_change()
         elif current_lane_at_time and current_lane_at_time == stored_lane_code:
             # Đang ở cùng lane rồi, không cần làm gì
             logging.info(f"PhotoPreviewTab: Already in lane {stored_lane_code}, no change needed")
@@ -1247,6 +1313,10 @@ class PhotoPreviewTab(QWidget):
             logging.info(f"PhotoPreviewTab: standard lane_manager.assign_lane returned success={success}")
             if success:
                 self.sync_lane_fixes_cache()  # Sync cache after direct lane assignment
+                
+                # Track metrics - new lane assignment
+                if hasattr(self.main_window, 'metrics_tracker'):
+                    self.main_window.metrics_tracker.track_lane_assignment()
 
         if success:
             self.update_lane_display()
