@@ -787,7 +787,8 @@ class PhotoPreviewTab(QWidget):
             plate = data['metadata'].get('plate', 'Unknown')
             self.lane_manager.plate = plate
             self.lane_manager.fileid_folder = Path(fileid_folder.path)
-            self.lane_manager.set_end_time(data['metadata']['last_image_timestamp'])
+            if data['metadata'].get('last_image_timestamp') is not None:
+                self.lane_manager.set_end_time(data['metadata']['last_image_timestamp'])
             
             # Store current FileID for saving (set after lane_manager is ready)
             self.current_fileid = fileid_folder
@@ -842,6 +843,12 @@ class PhotoPreviewTab(QWidget):
             progress.setValue(85)
             self.lane_fixes_per_fileid[fileid_folder.fileid] = self.lane_manager.lane_fixes
             
+            # Sync timeline to current FileID immediately so view only shows this FileID's events
+            self.timeline.set_events(self.events, update_view_range=False)
+            self.timeline.set_lane_manager(self.lane_manager)
+            if self.gps_data:
+                self.timeline.set_gps_data(self.gps_data)
+
             # logging.info(f"PhotoPreviewTab: Stored {len(self.events)} events, {len(self.image_paths)} images")
 
             # Load first image if available BEFORE setting timeline events
@@ -870,6 +877,8 @@ class PhotoPreviewTab(QWidget):
                 # QTimer.singleShot(100, lambda: self._force_minimap_update())
             else:
                 logging.warning("PhotoPreviewTab: No images found in FileID")
+                # Still set timeline view for current FileID (events already set above)
+                QTimer.singleShot(10, self._setup_timeline_data)
             
             # logging.info(f"PhotoPreviewTab: Successfully loaded FileID {fileid_folder.fileid}")
             if hasattr(self.main_window, 'update_fileid_navigation'):
@@ -926,7 +935,7 @@ class PhotoPreviewTab(QWidget):
                         error_msg
                     )
 
-            # Set timeline view range based on image folder time range (UTC)
+            # Set timeline view range: prefer image time range, fallback to events range so view always exists
             if self.fileid_metadata.get('first_image_timestamp') and self.fileid_metadata.get('last_image_timestamp'):
                 self.timeline.set_image_time_range(
                     self.fileid_metadata['first_image_timestamp'],
@@ -934,6 +943,8 @@ class PhotoPreviewTab(QWidget):
                     self.fileid_metadata.get('first_image_coords'),
                     self.fileid_metadata.get('last_image_coords')
                 )
+            elif self.events:
+                self.timeline.update_view_range()
 
             # Update minimap with current position (keep zoom level)
             if self.image_paths and self.current_index < len(self.image_paths):

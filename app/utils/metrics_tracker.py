@@ -89,11 +89,15 @@ class MetricsSession:
         session.fileid_saves = data.get("fileid_saves", 0)
         session.autoplay_sessions = data.get("autoplay_sessions", 0)
         
-        # Parse duration string back to timedelta
+        # Parse duration string back to timedelta (supports decimals in seconds, e.g. "0:0:31.023448")
         duration_str = data.get("autoplay_duration", "0:00:00")
-        session.autoplay_duration = timedelta(seconds=sum(
-            int(x) * 60 ** i for i, x in enumerate(reversed(duration_str.split(":")))
-        ))
+        try:
+            parts = [float(x) for x in reversed(duration_str.split(":"))]
+            session.autoplay_duration = timedelta(seconds=sum(
+                parts[i] * 60 ** i for i in range(len(parts))
+            ))
+        except (ValueError, TypeError):
+            session.autoplay_duration = timedelta(0)
         
         session.avg_image_load_time = data.get("avg_image_load_time", 0.0)
         session.avg_fileid_load_time = data.get("avg_fileid_load_time", 0.0)

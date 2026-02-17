@@ -329,8 +329,10 @@ class TimelineWidget(QWidget):
                 self.view_start_time = timestamp - padding
                 self.view_end_time = timestamp + padding
         else:
-            # When events are loaded, ensure current position is visible
-            # First, check if current position is within current view range
+            # When events are loaded, ensure view range is set (e.g. not yet set by _setup_timeline_data)
+            if self.view_start_time is None or self.view_end_time is None:
+                self.update_view_range()
+            # Ensure current position is visible
             if not (self.view_start_time <= timestamp <= self.view_end_time):
                 # Current position is outside view range, need to pan
                 # Calculate how much to shift the view to make current position visible
@@ -490,6 +492,7 @@ class TimelineWidget(QWidget):
 
         logging.debug(f"TimelineWidget: Base range updated to {self.base_view_start_time} - {self.base_view_end_time}")
         logging.debug(f"TimelineWidget: View range updated to {self.view_start_time} - {self.view_end_time}")
+        self.timeline_area.update()
 
     def zoom_changed(self, value):
         """Handle zoom slider change"""
@@ -834,6 +837,11 @@ class TimelineWidget(QWidget):
 
     def rebuild_layer_cache(self, rect: QRect):
         """Rebuild layer cache for events"""
+        if not self.view_start_time or not self.view_end_time:
+            with QMutexLocker(self.cache_mutex):
+                self.layer_cache = [[]]
+                self.layer_cache_dirty = False
+            return
         with QMutexLocker(self.cache_mutex):
             max_layers = max(1, rect.height() // LAYER_HEIGHT)
             self.layer_cache = [[] for _ in range(max_layers)]
@@ -1076,9 +1084,14 @@ class TimelineWidget(QWidget):
         if not self.lane_change_mode_active or not self.current_position:
             logging.debug("TimelineWidget: Lane change mode not active or no current position")
             return None
+        if not self.view_start_time or not self.view_end_time:
+            return None
 
         rect = self.timeline_area.rect()
-        pixels_per_second = rect.width() / (self.view_end_time - self.view_start_time).total_seconds()
+        time_range = (self.view_end_time - self.view_start_time).total_seconds()
+        if time_range <= 0:
+            return None
+        pixels_per_second = rect.width() / time_range
         marker_x = self.time_to_pixel(self.current_position, pixels_per_second, rect.left())
 
         button_radius = 12
