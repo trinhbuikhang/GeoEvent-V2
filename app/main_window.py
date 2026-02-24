@@ -904,6 +904,9 @@ class MainWindow(QMainWindow):
             if new_cache_size != old_cache_size:
                 # Update cache size in photo tab
                 self.photo_tab.update_cache_settings(new_cache_size)
+            # Refresh timeline so event popup setting takes effect immediately
+            if self.photo_tab and hasattr(self.photo_tab, 'timeline') and hasattr(self.photo_tab.timeline, 'timeline_area'):
+                self.photo_tab.timeline.timeline_area.update()
 
     def show_about(self):
         """Show about dialog"""

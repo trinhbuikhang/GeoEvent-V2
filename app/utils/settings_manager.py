@@ -56,6 +56,7 @@ class SettingsManager:
             'autosave_interval': 300,  # 5 minutes
             'image_cache_size': 500,   # MB
             'timeline_zoom_default': 10,
+            'timeline_event_popup': True,  # Highlight event name when marker passes through event
             'lane_assignment_mode': 'strict',  # 'strict' or 'permissive'
             'auto_save_on_navigation': True,  # Auto-save when switching FileID folders
             'settings_migrated_v2': False,  # One-time migration flag to avoid startup resets

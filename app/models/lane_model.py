@@ -145,8 +145,12 @@ class LaneManager:
             self.lane_fixes.append(lane_fix)
             self.current_lane = actual_lane_code
 
-            # If this is the last lane assignment and we have end_time, extend to end
-            if self.end_time and not self._has_lane_after(timestamp):
+            # Extend new period: fill gap until next period start, or to folder end if none
+            next_start = self._get_next_period_start(timestamp)
+            if next_start is not None:
+                lane_fix.to_time = next_start
+                logging.info(f"Extended lane {actual_lane_code} to next period start: {next_start}")
+            elif self.end_time and not self._has_lane_after(timestamp):
                 lane_fix.to_time = self.end_time
                 logging.info(f"Extended lane {lane_code} to folder end time: {self.end_time}")
 
@@ -406,6 +410,12 @@ class LaneManager:
             if fix.from_time > timestamp:
                 return True
         return False
+
+    def _get_next_period_start(self, after_timestamp: datetime) -> Optional[datetime]:
+        """Return the start time of the next period after the given timestamp, or None.
+        Used to extend a new lane assignment so it fills the gap until the next period (e.g. 0–500 as L2 when 500–1000 is L1)."""
+        candidates = [f.from_time for f in self.lane_fixes if f.from_time is not None and f.from_time > after_timestamp]
+        return min(candidates) if candidates else None
 
     def check_overlap(self, timestamp: datetime, exclude_ignore: bool = False, exclude_special: bool = False) -> bool:
         """

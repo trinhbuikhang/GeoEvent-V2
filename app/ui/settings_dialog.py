@@ -55,6 +55,19 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(lane_group)
 
+        # Timeline display group
+        timeline_group = QGroupBox("Timeline")
+        timeline_layout = QVBoxLayout(timeline_group)
+
+        self.timeline_event_popup_cb = QCheckBox("Highlight event name when marker passes through event")
+        self.timeline_event_popup_cb.setToolTip(
+            "When the yellow position marker moves through an event on the timeline, show a pop-up label with the event name.\n"
+            "Useful for short events where the colored bar is hard to see."
+        )
+        timeline_layout.addWidget(self.timeline_event_popup_cb)
+
+        layout.addWidget(timeline_group)
+
         # Performance group
         perf_group = QGroupBox("Performance")
         perf_layout = QVBoxLayout(perf_group)
@@ -110,6 +123,9 @@ class SettingsDialog(QDialog):
         self.timeline_zoom_spin.setValue(
             settings.get('timeline_zoom_default', 10)
         )
+        self.timeline_event_popup_cb.setChecked(
+            settings.get('timeline_event_popup', True)
+        )
 
     def save_settings(self):
         """Save settings from UI"""
@@ -120,6 +136,7 @@ class SettingsDialog(QDialog):
         new_settings = {
             'auto_save_on_navigation': self.auto_save_navigation_cb.isChecked(),
             'lane_assignment_mode': self.lane_mode_combo.currentText(),
+            'timeline_event_popup': self.timeline_event_popup_cb.isChecked(),
             'image_cache_size': self.cache_size_spin.value(),
             'timeline_zoom_default': self.timeline_zoom_spin.value()
         }

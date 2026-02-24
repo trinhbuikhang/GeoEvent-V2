@@ -87,6 +87,10 @@ class UserGuideDialog(QDialog):
             <li>Hover for time and lane details</li>
         </ul>
 
+        <h4>Event name pop-up when marker passes through</h4>
+        <p>When the yellow position marker moves through an event on the timeline, the app can show a small pop-up label with the event name. This is especially useful for short events where the colored bar is hard to see.</p>
+        <p><b>Turn on/off:</b> <b>Tools &gt; Settings...</b> &rarr; <b>Timeline</b> &rarr; check or uncheck <b>Highlight event name when marker passes through event</b>. The change applies immediately.</p>
+
         <h3>5. Image Navigation</h3>
         <ul>
             <li><b>Slider:</b> Drag to navigate images</li>

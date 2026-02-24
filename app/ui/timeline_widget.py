@@ -1016,9 +1016,22 @@ class TimelineWidget(QWidget):
         return [e for e in self.events
                 if e.start_time <= t <= e.end_time]
 
+    def _should_show_event_popup(self) -> bool:
+        """Whether to show event name pop-up when marker passes through event (user setting)."""
+        try:
+            if self.photo_tab and getattr(self.photo_tab, 'main_window', None):
+                mw = self.photo_tab.main_window
+                if getattr(mw, 'settings_manager', None):
+                    return mw.settings_manager.get_setting('timeline_event_popup', True)
+        except Exception:
+            pass
+        return True
+
     def paint_marker_event_popup(self, painter: QPainter, marker_x: float, rect: QRect, arrow_bottom_y: int):
         """Draw pop-up label (event name) when marker passes through an event. Highlights short/narrow events.
         Saves/restores painter state so only the event name pop-up is styled; chainage labels below stay normal."""
+        if not self._should_show_event_popup():
+            return
         events_at_marker = self.get_events_at_marker_time()
         if not events_at_marker:
             return
