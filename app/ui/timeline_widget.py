@@ -10,7 +10,8 @@ from PyQt6.QtWidgets import (
     QComboBox, QSlider, QMenu, QInputDialog, QMessageBox, QLineEdit, QDialog
 )
 from PyQt6.QtCore import Qt, QRect, QPoint, pyqtSignal, QTimer, QMutex, QMutexLocker
-from PyQt6.QtGui import QPainter, QPen, QColor, QBrush, QFont, QAction
+from PyQt6.QtGui import QPainter, QPen, QColor, QBrush, QFont, QAction, QFontMetrics
+from PyQt6.QtCore import QRectF
 
 from ..models.event_model import Event
 from ..models.gps_model import GPSData
@@ -312,9 +313,13 @@ class TimelineWidget(QWidget):
         if self.slideshow_active:
             # Check if current position is outside visible range (off-screen)
             if self.view_start_time and self.view_end_time:
+                current_span = self.view_end_time - self.view_start_time
                 if timestamp > self.view_end_time:
                     # Marker went off right edge, recenter view around current position
-                    current_span = self.view_end_time - self.view_start_time
+                    self.view_start_time = timestamp - (current_span / 2)
+                    self.view_end_time = timestamp + (current_span / 2)
+                elif timestamp < self.view_start_time:
+                    # Marker went off left edge, recenter view
                     self.view_start_time = timestamp - (current_span / 2)
                     self.view_end_time = timestamp + (current_span / 2)
             self.timeline_area.update()
@@ -360,6 +365,15 @@ class TimelineWidget(QWidget):
                         self.view_end_time = self.view_start_time + current_span
                     if self.view_end_time < max_event_time:
                         self.view_end_time = max_event_time
+                        self.view_start_time = self.view_end_time - current_span
+
+                # Keep marker visible: re-pan if "ensure events" pushed current position off-screen
+                if not (self.view_start_time <= timestamp <= self.view_end_time):
+                    if timestamp < self.view_start_time:
+                        self.view_start_time = timestamp - (current_span * 0.1)
+                        self.view_end_time = self.view_start_time + current_span
+                    elif timestamp > self.view_end_time:
+                        self.view_end_time = timestamp + (current_span * 0.1)
                         self.view_start_time = self.view_end_time - current_span
 
         self.timeline_area.update()
@@ -994,6 +1008,54 @@ class TimelineWidget(QWidget):
                     painter.setPen(QPen(QColor('#FFFFFF'), 2))  # White line, 2 pixels wide
                     painter.drawLine(separator_x, lane_bar_y, separator_x, lane_bar_y + lane_bar_height)
 
+    def get_events_at_marker_time(self) -> List[Event]:
+        """Return events that contain the current position (marker) time. Used for pop-up label."""
+        if not self.current_position or not self.events:
+            return []
+        t = self.current_position
+        return [e for e in self.events
+                if e.start_time <= t <= e.end_time]
+
+    def paint_marker_event_popup(self, painter: QPainter, marker_x: float, rect: QRect, arrow_bottom_y: int):
+        """Draw pop-up label (event name) when marker passes through an event. Highlights short/narrow events.
+        Saves/restores painter state so only the event name pop-up is styled; chainage labels below stay normal."""
+        events_at_marker = self.get_events_at_marker_time()
+        if not events_at_marker:
+            return
+        painter.save()
+        try:
+            # Build label text (one or more event names)
+            label = " • ".join(e.event_name for e in events_at_marker)
+            font = painter.font()
+            font.setPointSize(10)
+            font.setBold(True)
+            painter.setFont(font)
+            fm = QFontMetrics(font)
+            text_width = fm.horizontalAdvance(label)
+            text_height = fm.height()
+            padding_h, padding_v = 8, 4
+            box_w = text_width + 2 * padding_h
+            box_h = text_height + 2 * padding_v
+            # Position: below the arrow, centered on marker
+            box_x = marker_x - box_w / 2
+            box_y = arrow_bottom_y + 6
+            # Keep popup inside timeline horizontally
+            box_x = max(rect.left(), min(rect.right() - box_w, box_x))
+            box_rect = QRectF(box_x, box_y, box_w, box_h)
+            # Draw "pop" effect: bright border + semi-opaque background
+            painter.setPen(QPen(QColor('#FFFFFF'), 2))
+            painter.setBrush(QBrush(QColor(40, 44, 52, 230)))
+            painter.drawRoundedRect(box_rect, 6, 6)
+            # Subtle outer glow (lighter outline)
+            painter.setPen(QPen(QColor('#FFFF00'), 1))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(box_rect.adjusted(1, 1, -1, -1), 5, 5)
+            # Text
+            painter.setPen(QColor('#FFFFFF'))
+            painter.drawText(int(box_x + padding_h), int(box_y + padding_v + fm.ascent()), label)
+        finally:
+            painter.restore()
+
     def paint_current_position(self, painter: QPainter, rect: QRect, pixels_per_second: float):
         """Paint current position marker"""
         if not self.current_position:
@@ -1029,6 +1091,9 @@ class TimelineWidget(QWidget):
             # Draw vertical line from arrow to timeline
             painter.setPen(QPen(marker_color, pen_width))
             painter.drawLine(int(x), arrow_y + arrow_size, int(x), rect.bottom())
+
+            # Pop-up event name when marker is over an event (especially useful for short events)
+            self.paint_marker_event_popup(painter, x, rect, arrow_y + arrow_size)
 
             # Draw action buttons when in lane change mode
             if self.lane_change_mode_active:

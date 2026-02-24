@@ -6,7 +6,7 @@ Handles automatic saving of application state
 import os
 import json
 from datetime import datetime
-from PyQt6.QtCore import QThread, pyqtSignal, QTimer
+from PyQt6.QtCore import QThread, pyqtSignal
 
 class AutoSaveManager(QThread):
     """
@@ -57,14 +57,11 @@ class AutoSaveManager(QThread):
                 os.remove(temp_path)
 
     def run(self):
-        """Run autosave timer in background"""
-        timer = QTimer()
-        timer.timeout.connect(self._perform_save)
-        timer.start(self.interval_seconds * 1000)  # Convert to milliseconds
-
-        # Keep thread alive
+        """Run periodic autosave in background (sleep-based; QTimer needs event loop)."""
         while self.running:
-            self.sleep(1)
+            self.msleep(self.interval_seconds * 1000)  # milliseconds
+            if self.running:
+                self._perform_save()
 
     def stop(self):
         """Stop autosave"""

@@ -24,6 +24,7 @@ from .core.autosave_manager import AutoSaveManager
 from .ui.settings_dialog import SettingsDialog
 from .ui.shortcuts_dialog import ShortcutsDialog
 from .utils.metrics_tracker import MetricsTracker
+from .utils.resource_path import get_resource_path
 
 class BackgroundSaveWorker(QThread):
     """
@@ -66,6 +67,7 @@ class MainWindow(QMainWindow):
         self.autosave_manager = AutoSaveManager()
         self.metrics_tracker = MetricsTracker()
         self.root_folder_path = None  # Parent folder containing FileID folders
+        self._merge_after_save_pending = False
 
         # Ensure settings file is initialized without clearing user preferences
         self._ensure_settings_migration()
@@ -259,8 +261,10 @@ class MainWindow(QMainWindow):
 
     def handle_folder_selection(self):
         """Handle folder selection for single/multi-FileID mode"""
+        last_folder = self.settings_manager.get_setting('last_folder')
+        start_dir = last_folder if last_folder and os.path.isdir(last_folder) else None
         folder_path = QFileDialog.getExistingDirectory(
-            self, "Select Survey Data Folder"
+            self, "Select Survey Data Folder", directory=start_dir or ""
         )
 
         if folder_path:
@@ -281,6 +285,9 @@ class MainWindow(QMainWindow):
 
                 # Load first FileID
                 self.load_fileid(fileid_folders[0])
+
+                # Remember folder for next time
+                self.settings_manager.save_setting('last_folder', self.root_folder_path)
 
                 # Update navigation
                 self.update_fileid_navigation()
@@ -408,6 +415,11 @@ class MainWindow(QMainWindow):
             self.save_worker.quit()
             self.save_worker.wait()
             self.save_worker = None
+
+        # Deferred merge after save (avoids main-thread sleep)
+        if getattr(self, '_merge_after_save_pending', False):
+            self._merge_after_save_pending = False
+            QTimer.singleShot(0, self._do_merge_and_show_message)
 
     def _ensure_settings_migration(self):
         """Mark settings migration once without deleting user preferences"""
@@ -541,28 +553,26 @@ class MainWindow(QMainWindow):
                 logging.error("Failed to auto-save modified lane fixes")
 
     def _handle_manual_merge(self):
-        """Handle manual merge request - auto-save current data first, then merge"""
+        """Handle manual merge request - auto-save current data first, then merge (no main-thread sleep)."""
         try:
-            # First auto-save current data
             if hasattr(self.photo_tab, 'current_fileid') and self.photo_tab.current_fileid:
+                self._merge_after_save_pending = True
                 self._start_background_save()
-                # Wait a bit for save to complete
-                import time
-                time.sleep(0.5)
-            
-            # Then merge all data
+            else:
+                self._do_merge_and_show_message()
+        except Exception as e:
+            QMessageBox.warning(self, "Merge Error", f"Failed to merge data: {str(e)}")
+
+    def _do_merge_and_show_message(self):
+        """Run merge and show completion message (called after save or when no save needed)."""
+        try:
             self._merge_and_save_multi_fileid_data()
-            
             QMessageBox.information(
                 self, "Merge Complete",
                 "All FileID data has been merged into root folder files."
             )
-            
         except Exception as e:
-            QMessageBox.warning(
-                self, "Merge Error", 
-                f"Failed to merge data: {str(e)}"
-            )
+            QMessageBox.warning(self, "Merge Error", f"Failed to merge data: {str(e)}")
 
     def _merge_and_save_multi_fileid_data(self):
         """Merge data from all FileID folders and save to root folder"""
@@ -652,10 +662,8 @@ class MainWindow(QMainWindow):
         # Force Fusion style to prevent system theme override
         QApplication.setStyle("Fusion")
 
-        # Load theme stylesheet
-        theme_path = os.path.join(
-            os.path.dirname(__file__), 'ui', 'styles', f'{theme_name}.qss'
-        )
+        # Load theme stylesheet (frozen-EXE safe via get_resource_path)
+        theme_path = get_resource_path(os.path.join('app', 'ui', 'styles', f'{theme_name}.qss'))
 
         try:
             with open(theme_path, 'r') as f:

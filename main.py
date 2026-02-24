@@ -13,18 +13,30 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPalette, QColor, QIcon
 from app.main_window import MainWindow
 from app.logging_config import setup_logging as setup_centralized_logging
+from app.utils.resource_path import get_resource_path, get_app_base_dir
 
-def get_resource_path(relative_path: str) -> str:
-    """Return absolute path to resource, works for dev and PyInstaller"""
-    base_path = getattr(sys, "_MEIPASS", Path(__file__).parent)
-    return str(Path(base_path, relative_path))
+
+def _setup_dpi_awareness():
+    """Set DPI awareness before any GUI for Windows 11 / high-DPI compatibility."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        # PROCESS_PER_MONITOR_DPI_AWARE = 2
+        shcore = ctypes.windll.shcore
+        shcore.SetProcessDpiAwareness(2)
+    except (AttributeError, OSError):
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except (AttributeError, OSError):
+            pass
 
 
 def setup_logging():
     """Setup centralized logging configuration with rotation"""
-    # Use centralized logging configuration
+    log_dir = str(get_app_base_dir() / "logs")
     logger = setup_centralized_logging(
-        log_dir="logs",
+        log_dir=log_dir,
         level=logging.DEBUG,  # Root level for file
         console_level=logging.INFO,  # Console shows INFO and above
         file_level=logging.DEBUG,  # File logs everything
@@ -40,14 +52,16 @@ def setup_logging():
 
 def main():
     """Main application entry point"""
-    # Setup logging first
+    _setup_dpi_awareness()
     setup_logging()
-    
-    # Create application
+
     app = QApplication(sys.argv)
     app.setApplicationName("GeoEvent")
-    app.setApplicationVersion("2.0.23")
+    app.setApplicationVersion("2.0.24")
     app.setOrganizationName("Pavement Team")
+    # Consistent scaling on Windows 11 high-DPI
+    if hasattr(Qt, 'HighDpiScaleFactorRoundingPolicy'):
+        app.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app.setStyle("Fusion")  # App-wide Fusion style
     icon_path = get_resource_path(os.path.join("app", "ui", "icon", "Event.ico"))
     app_icon = None

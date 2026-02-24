@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import json
 
+from app.utils.resource_path import get_app_base_dir
+
 
 @dataclass
 class MetricsSession:
@@ -121,9 +123,9 @@ class MetricsTracker:
         Initialize metrics tracker
         
         Args:
-            metrics_file: Path to metrics JSON file (default: logs/metrics.json)
+            metrics_file: Path to metrics JSON file (default: logs/metrics.json under app base dir)
         """
-        self.metrics_file = metrics_file or Path("logs/metrics.json")
+        self.metrics_file = metrics_file or (get_app_base_dir() / "logs" / "metrics.json")
         self.current_session: Optional[MetricsSession] = None
         self.sessions: List[MetricsSession] = []
         
